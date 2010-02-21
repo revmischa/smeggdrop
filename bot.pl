@@ -28,6 +28,7 @@ for my $server (keys %{$config->{Server}}) {
   
   my $server    = $conf->{address} || warn "Unable to parse address for network $server" && next;
   my $port      = $conf->{port} || 6667;
+  my $ssl       = $conf->{ssl}  ? 1 : 0;
 
   my $irc = POE::Component::IRC::State->spawn(
     nick      => $nick,
@@ -36,8 +37,10 @@ for my $server (keys %{$config->{Server}}) {
 
     server    => $server,
     port      => $port,
+    usessl    => $ssl,
   ) or warn "Failed to spawn IRC component" && next;
 
+  print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";
   POE::Session->create(
     package_states  => [
       main  => [qw/_default _start irc_001/],
@@ -61,14 +64,17 @@ sub irc_001 {
 
   print "Connected to ", $heap->{irc}->server_name, "\n";
 
-  $heap->{irc}->yield(join => "#$_") for (@{$heap->{conf}->{Channels}->{default}});
+  if(ref($heap->{conf}->{Channels}->{default})) {
+    $heap->{irc}->yield(join => "#$_") for (@{$heap->{conf}->{Channels}->{default}});
+  } else {
+    $heap->{irc}->yield(join  => "#" . $heap->{conf}->{Channels}->{default});
+  }
 }
 
 sub _default {
   my ($kernel,$heap,$event,@args) = @_[KERNEL,HEAP,ARG0,ARG1 .. $#_];
 
   ddx($event);
-  ddx(@args);
 }
 
 POE::Kernel->run();
