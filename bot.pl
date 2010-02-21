@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Config::General;
 use Carp::Always;
+use Tcl;
 use Data::Dump  qw/ddx/;
 use POE         qw/Component::IRC::State Component::IRC::Plugin::Connector/;
 
@@ -17,10 +18,16 @@ sub parse_config {
   return \%configuration;
 }
 
+my %states;
 my $config  = parse_config;
 
 for my $server (keys %{$config->{Server}}) {
   my $conf  = $config->{Server}->{$server};
+
+  if (!$states{$conf->{state}}) {
+    my $tcl = Tcl->new;
+    $states{$conf->{state}} = $tcl;
+  }
 
   my $nick      = $conf->{nickname} || 'dickbot',
   my $username  = $conf->{username} || 'urmom',
@@ -43,7 +50,7 @@ for my $server (keys %{$config->{Server}}) {
   print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";
   POE::Session->create(
     package_states  => [
-      main  => [qw/_default _start irc_001/],
+      main  => [qw/_default _start irc_001 irc_public/],
     ],
     heap  => {
       irc   => $irc,
@@ -68,6 +75,18 @@ sub irc_001 {
     $heap->{irc}->yield(join => "#$_") for (@{$heap->{conf}->{Channels}->{default}});
   } else {
     $heap->{irc}->yield(join  => "#" . $heap->{conf}->{Channels}->{default});
+  }
+}
+
+sub irc_public {
+  my ($kernel,$heap,$who,$channels,$message)  = @_[KERNEL,HEAP,ARG0 .. ARG2];
+
+  my $trigger = qr/$heap->{conf}->{trigger}/;
+
+  print STDERR "got message: $message\n";
+  if ($message  =~ $trigger) {
+    print "Got trigger $message\n";
+    ddx(%states);
   }
 }
 
