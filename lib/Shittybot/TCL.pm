@@ -10,9 +10,11 @@ use Tcl;
 sub spawn {
   my $class = shift;
   my $state = shift;
+  my $irc   = shift;
   my $self  = {};
 
   $self->{state}  = $state;
+  $self->{irc}    = $irc;
 
   bless ($self,$class);
 
@@ -51,6 +53,7 @@ sub load_state {
 
   $tcl->Init;
   $tcl->CreateCommand('putlog',sub{ddx(@_)});
+  $tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
   $tcl->Eval("set smeggdrop_state_path $statepath");
   $tcl->EvalFile('smeggdrop.tcl');
   

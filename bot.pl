@@ -26,10 +26,6 @@ my $config  = parse_config;
 for my $server (keys %{$config->{Server}}) {
   my $conf  = $config->{Server}->{$server};
 
-  if (!$states{$conf->{state}}) {
-    my $tcl = Shittybot::TCL->spawn($conf->{state});
-    $states{$conf->{state}} = $tcl;
-  }
 
   my $nick      = $conf->{nickname} || 'dickbot',
   my $username  = $conf->{username} || 'urmom',
@@ -50,6 +46,14 @@ for my $server (keys %{$config->{Server}}) {
   ) or warn "Failed to spawn IRC component" && next;
 
   print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";
+
+  if (!$states{$conf->{state}}) {
+    my $tcl = Shittybot::TCL->spawn($conf->{state},$irc);
+    $states{$conf->{state}} = $tcl;
+    print "Spawned TCL master for state $conf->{state}\n";
+  }
+
+
   POE::Session->create(
     package_states  => [
       main  => [qw/_default _start irc_001 irc_public/],
