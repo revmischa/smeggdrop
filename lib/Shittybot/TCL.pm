@@ -44,10 +44,14 @@ sub _tcl_chld {
 }
 
 sub load_state {
+  my $self      = shift;
+  my $statepath = shift;
+
   my $tcl = Tcl->new;
+
   $tcl->Init;
   $tcl->CreateCommand('putlog',sub{ddx(@_)});
-
+  $tcl->Eval("set smeggdrop_state_path $statepath");
   $tcl->EvalFile('smeggdrop.tcl');
   
   return $tcl;
