@@ -1,0 +1,13 @@
+<Server NetworkName>
+  address host.name
+  nickname shittybot
+  username shitty
+  realname not a very good bot
+ 
+  state state-networkname/
+  trigger ^t\s
+ 
+  <Channels>
+    default shittybot
+  </Channels>
+</Server>
