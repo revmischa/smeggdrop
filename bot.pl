@@ -57,6 +57,7 @@ for my $server (keys %{$config->{Server}}) {
     heap  => {
       irc   => $irc,
       conf  => $conf,
+      tcl   => $states{$conf->{state}},
     },
   );
 }
@@ -83,12 +84,21 @@ sub irc_001 {
 sub irc_public {
   my ($kernel,$heap,$who,$channels,$message)  = @_[KERNEL,HEAP,ARG0 .. ARG2];
 
-  my $trigger = qr/$heap->{conf}->{trigger}/;
+  my $trigger = $heap->{conf}->{trigger};
 
   print STDERR "got message: $message\n";
-  if ($message  =~ $trigger) {
+  if ($message  =~ qr/$trigger/) {
     print "Got trigger $message\n";
-    ddx(%states);
+    my $code  = $message;
+    $code     =~ s/$trigger//;
+
+    my $nick  = ($who =~ /^([^!]+)/)[0];
+    my $mask  = $who;
+    $mask     =~ s/^[^!]+!//;
+
+    my $out   = $heap->{tcl}->call($nick,$mask,'',${$channels}[0],$code);
+
+    $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
   }
 }
 

@@ -262,9 +262,9 @@ snit::type versioned_interpreter {
       set code 0 
     }
 
-    if [regexp -line {^origin$} [$self git remote]] {
-      $self git push origin master 
-    }
+#    if [regexp -line {^origin$} [$self git remote]] {
+#      $self git push origin master 
+#    }
 
     return -code $code $result
   }

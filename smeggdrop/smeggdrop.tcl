@@ -158,10 +158,6 @@ proc interp_eval script {
   $::versioned_interpreter interpx . eval $script
 }
 
-proc pub:tcl {nick mask hand channel line} {
-  after idle [list pub:tcl:perform $nick $mask $hand $channel $line]
-}
-
 proc pub:tcl:perform {nick mask hand channel line} {
   global versioned_interpreter
 
@@ -174,21 +170,8 @@ proc pub:tcl:perform {nick mask hand channel line} {
     set output "error: $output"
   }
 
-  set lines [smeggdrop::split_lines $output [smeggdrop::line_length_for $channel]]
-  
-  if {[lsearch -regexp $lines {^\001DCC.*\001}] != -1} {
-    set lines [list "error: output contains unsafe CTCP sequence"]
-  }
-  
-  if {[set line_length [llength $lines]] > $::smeggdrop_max_lines} {
-    set lines [lrange $lines 0 [expr $::smeggdrop_max_lines - 1]]
-    lappend lines \
-      "error: output truncated to $::smeggdrop_max_lines of $line_length lines total"
-  }
-                       
-  foreach line $lines {
-    putserv "PRIVMSG $channel :$line"
-  }
+  putlog $output
+  return $output
 }
 
 if [info exists versioned_interpreter]  {$versioned_interpreter destroy}

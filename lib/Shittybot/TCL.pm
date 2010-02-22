@@ -56,4 +56,13 @@ sub load_state {
   
   return $tcl;
 }
+
+sub call {
+  my $self  = shift;
+  my ($nick,$mask,$handle,$channel,$code) = @_;
+
+  ddx(@_);
+  return $self->{tcl}->Eval("pub:tcl:perform {$nick} {$mask} {$handle} {$channel} {$code}");
+}
+
 1;
