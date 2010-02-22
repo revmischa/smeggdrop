@@ -197,8 +197,6 @@ if ![info exists smeggdrop_max_lines]   {set smeggdrop_max_lines   10}
 if ![info exists smeggdrop_timeout]     {set smeggdrop_timeout     5000}
 if ![info exists smeggdrop_trigger]     {set smeggdrop_trigger     tcl}
 
-bind pub - $smeggdrop_trigger pub:tcl
-
 set versioned_interpreter [versioned_interpreter create %AUTO% \
   $smeggdrop_state_path -verbose true -logcommand ::putlog -timeout $smeggdrop_timeout]
 

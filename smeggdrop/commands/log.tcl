@@ -1,5 +1,5 @@
 if [info exists smeggdrop_log_max_lines] {
-  bind pubm - * pubm:smeggdrop_log_line
+  #bind pubm - * pubm:smeggdrop_log_line
   array set smeggdrop_log_lines {}
 
   proc pubm:smeggdrop_log_line {nick mask hand channel line} {

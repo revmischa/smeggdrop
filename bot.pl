@@ -4,9 +4,11 @@ use strict;
 use warnings;
 use Config::General;
 use Carp::Always;
-use Tcl;
 use Data::Dump  qw/ddx/;
 use POE         qw/Component::IRC::State Component::IRC::Plugin::Connector/;
+
+use lib 'lib';
+use Shittybot::TCL;
 
 sub parse_config {
   my $configfile  = $ENV{'SMEGGDROP_CONFIG'} && (-r $ENV{'SMEGGDROP_CONFIG'}) ? 
@@ -25,7 +27,7 @@ for my $server (keys %{$config->{Server}}) {
   my $conf  = $config->{Server}->{$server};
 
   if (!$states{$conf->{state}}) {
-    my $tcl = Tcl->new;
+    my $tcl = Shittybot::TCL->spawn($conf->{state});
     $states{$conf->{state}} = $tcl;
   }
 
@@ -93,7 +95,7 @@ sub irc_public {
 sub _default {
   my ($kernel,$heap,$event,@args) = @_[KERNEL,HEAP,ARG0,ARG1 .. $#_];
 
-  ddx($event);
+#  ddx($event);
 }
 
 POE::Kernel->run();

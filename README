@@ -1,18 +1,17 @@
-smeggdrop
+Shittybot
 =========
-A safe, public Tcl interpreter for eggdrop. 
-Interpreter state is versioned with Git.
+A fork of Sam Stephenson's excellent smeggdrop.
+No longer requires eggdrop
 
 Requirements:
-- eggdrop
+- Perl
+  - POE::Component::IRC::State
+  - Tcl
 - Tcl 8.4
-- tcllib
-- Ruby 1.8.6
-- RubyGems and Net::SSH
+  - tcllib
 - Git
 
 Installation:
-- Check out smeggdrop into your eggdrop root
-- Copy smeggdrop/smeggdrop.conf.default to smeggdrop.conf and edit it
-- Add this to the bottom of eggdrop.conf:
-    source smeggdrop/smeggdrop.tcl
+- Check out
+- Edit bot.conf
+- Run 'run-bot'
