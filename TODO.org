@@ -1,0 +1,22 @@
+* TODO of Smeggdrop
+** Spamming
+   - when flood-lined the bot should spam like no tomorrow
+** Latency
+   - Why does it take so long to respond?
+** Security: Detect wipe-out
+   - Detect if many procs are wiped out?
+** Write out
+   - Who should write out state?
+** Multiple State Test
+   - I dunno how multiple states and the ForkRing work
+** Should Fork Ring be optional?
+   - The fork ring could be an option
+** Fix the problem of making the unforkable process
+   - I could keep filling memory until the process could not fork no
+     more. That'd effectively screw up the bot.
+   - It needs to know when it should give up the ghost and dump cache
+     etc.
+** Error Messages
+   - There needs to be better error messages on death
+** HTTP Proxy
+   - Not sure if we need this but an HTTP proxy might help
