@@ -59,10 +59,14 @@ sub EvalFile {
 
 sub strip_or_die {
     my ($self,$hash) = @_;
-    if (!$hash->{failure}) {
+    if ($hash->{success}) {
         return $hash->{results};
+    } elsif ($hash->{failure}) {
+        return "Failure: ".$hash->{results};
     } else {
-        die "Failure: ".$hash->{results};
+        ddx("Unknown message");
+        ddx($hash);
+        die "Unknown message!";
     }
 }
 

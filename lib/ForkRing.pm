@@ -114,6 +114,8 @@ sub forkit {
         $p2c->autoflush(1);
         $c2p->reader();
         $c2p->autoflush(1);
+        utf8ify($c2p);
+        utf8ify($p2c);
     } else {
         install_handlers();
         $self->isParent(0); # child
@@ -121,8 +123,14 @@ sub forkit {
         $c2p->writer();
         $c2p->autoflush(1);
         $p2c->autoflush(1);
+        utf8ify($c2p);
+        utf8ify($p2c);
         return $self->childLoop();
     }    
+}
+sub utf8ify {
+    my ($a) = @_;
+    binmode $a, ":utf8";
 }
 
 sub readMsgFromParent {
@@ -154,6 +162,7 @@ sub evalMsg {
     if ($pid = fork()) {
         # parent
         $result_pipe->reader();
+        utf8ify( $result_pipe );
         $result_pipe->autoflush(1);
         my $time = $self->timeoutSeconds();
         my $SUCCESS = undef;
@@ -192,6 +201,7 @@ sub evalMsg {
         # in the child
         install_handlers();
         $result_pipe->writer();
+        utf8ify( $result_pipe );
         $result_pipe->autoflush(1);
         # we're a child lets run this command
         my $res = $self->runMsg($msg);
