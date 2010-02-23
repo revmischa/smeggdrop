@@ -20,3 +20,24 @@
    - There needs to be better error messages on death
 ** HTTP Proxy
    - Not sure if we need this but an HTTP proxy might help
+** Tests!
+   - Test Framework
+** POCO Bot stuff
+   We could add all of this great stuff:
+
+   use POE qw(Component::IRC Component::IRC::Plugin::Connector);
+
+   $heap->{connector} = POE::Component::IRC::Plugin::Connector->new();
+   $irc->plugin_add( 'Connector' => $heap->{connector} );
+
+   use POE qw(Component::IRC Component::IRC::Plugin::NickReclaim);
+   $irc->plugin_add( 'NickReclaim' => POE::Component::IRC::Plugin::NickReclaim->new( poll => 30 ) );
+   use POE qw(Component::IRC Component::IRC::Plugin::CTCP);
+
+   $irc->plugin_add( 'CTCP' => POE::Component::IRC::Plugin::CTCP->new(
+   version => $ircname,
+   userinfo => $ircname,
+   ));
+
+
+
