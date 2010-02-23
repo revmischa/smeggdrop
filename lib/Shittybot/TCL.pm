@@ -2,9 +2,12 @@
 
 package Shittybot::TCL;
 
-use POE   qw/Wheel::Run/;
+#use POE   qw/Wheel::Run/;
 use Data::Dump  qw/ddx/;
-use Shittybot::TCL::Child;
+#use Shittybot::TCL::Child;
+
+use Shittybot::TCL::ForkedTcl;
+
 use Tcl;
 
 sub spawn {
@@ -45,20 +48,31 @@ sub _tcl_chld {
 
 }
 
+
 sub load_state {
   my $self      = shift;
   my $statepath = shift;
+  my $tcl = $self->create_tcl($statepath);
 
-  my $tcl = Tcl->new;
-
-  $tcl->Init;
-  $tcl->CreateCommand('putlog',sub{ddx(@_)});
-  $tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
-  $tcl->Eval("set smeggdrop_state_path $statepath");
-  $tcl->EvalFile('smeggdrop.tcl');
-  
+  # dangerous call backs!
+  #$tcl->CreateCommand('putlog',sub{ddx(@_)});
+  #$tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
   return $tcl;
 }
+
+sub create_tcl {
+  my ($self,$statepath) = @_;
+  my $tcl = Tcl->new();
+  $tcl->Init;
+  $tcl->Eval("proc putlog args {}");
+  $tcl->Eval("proc chanlist args {}");
+  $tcl->Eval("set smeggdrop_state_path $statepath");
+  $tcl->EvalFile('smeggdrop.tcl');
+  $tcl = Shittybot::TCL::ForkedTcl->new( interp => $tcl );
+  $tcl->Init();
+  return $tcl;
+}
+
 
 sub call {
   my $self  = shift;

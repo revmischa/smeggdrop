@@ -7,6 +7,11 @@ Requirements:
 - Perl
   - POE::Component::IRC::State
   - Tcl
+  - Moose
+  - Time::Out
+  - Carp::Always
+  - Data::Dump
+  - Config::General
 - Tcl 8.4
   - tcllib
 - Git

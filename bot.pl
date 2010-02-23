@@ -1,4 +1,4 @@
-#!/usr/bin/perl 
+#!/usr/bin/perl
 
 use strict;
 use warnings;
@@ -8,6 +8,7 @@ use Data::Dump  qw/ddx/;
 use POE         qw/Component::IRC::State Component::IRC::Plugin::Connector/;
 
 use lib 'lib';
+
 use Shittybot::TCL;
 
 sub parse_config {
