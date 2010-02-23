@@ -10,6 +10,8 @@ use Shittybot::TCL::ForkedTcl;
 
 use Tcl;
 
+use TclEscape;
+
 sub spawn {
   my $class = shift;
   my $state = shift;
@@ -79,6 +81,8 @@ sub call {
   my ($nick,$mask,$handle,$channel,$code) = @_;
 
   ddx(@_);
+  ($nick,$mask,$handle,$channel,$code) = map { tcl_escape($_) } ($nick,$mask,$handle,$channel,$code);
+
   my $tcl = $self->{tcl};
   my @nicks = $self->{irc}->channel_list($channel);
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
@@ -91,28 +95,10 @@ sub call {
 
 #not sure about this
 sub tcl_escape {
-    my ($tcl) = @_;
-    my @chars = split(//,$tcl);
-    my $escape = 0;
-    my @o = ();
-    while(@chars) {
-        my $char = shift @chars;
-        if (!$escape) {
-            if ($char eq "\\") {
-                $escape = 1;                
-            } elsif ($char eq '{') {
-                $char = "\\{";
-            } elsif ($char eq '}') {
-                $char = "\\}";
-            }
-
-        } else {
-            
-        }
-        push @o, $char;
-    }
-    return join("",@o);
+    return TclEscape::escape($_);
 }
+
+
 
 
 

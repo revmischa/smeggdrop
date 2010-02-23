@@ -41,5 +41,14 @@
 ** Spam limits!
    We need to limit output to a reasonable length! Or enable a method
    of interrupting it.
+** Shared State
+   Perhaps we want to allow a state singleton who keeps track of
+   forkrings, such that if the same state-dir is used
+   The state is shared
+** Read only state
+   It'd be nice to have state which won't change
+   This can be done with forks too
+
+   
 
 

@@ -12,6 +12,7 @@ Requirements:
   - Carp::Always
   - Data::Dump
   - Config::General
+  - POE::Component::SSLify - if you want SSL
 - Tcl 8.4
   - tcllib
 - Git
