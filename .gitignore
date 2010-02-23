@@ -2,3 +2,4 @@
 *.swp
 /state-*
 /bot.conf
+*~
