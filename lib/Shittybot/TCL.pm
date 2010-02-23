@@ -54,8 +54,7 @@ sub load_state {
   my $statepath = shift;
   my $tcl = $self->create_tcl($statepath);
 
-  # dangerous call backs!
-  #$tcl->CreateCommand('putlog',sub{ddx(@_)});
+  # dangerous call backs
   #$tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
   return $tcl;
 }
@@ -64,8 +63,9 @@ sub create_tcl {
   my ($self,$statepath) = @_;
   my $tcl = Tcl->new();
   $tcl->Init;
-  $tcl->Eval("proc putlog args {}");
-  $tcl->Eval("proc chanlist args {}");
+  #$tcl->Eval("proc putlog args {}");
+  $tcl->CreateCommand('putlog',sub{ddx(@_)});
+  $tcl->Eval("proc chanlist args { cache::get irc chanlist }");
   $tcl->Eval("set smeggdrop_state_path $statepath");
   $tcl->EvalFile('smeggdrop.tcl');
   $tcl = Shittybot::TCL::ForkedTcl->new( interp => $tcl );
@@ -79,7 +79,41 @@ sub call {
   my ($nick,$mask,$handle,$channel,$code) = @_;
 
   ddx(@_);
-  return $self->{tcl}->Eval("pub:tcl:perform {$nick} {$mask} {$handle} {$channel} {$code}");
+  my $tcl = $self->{tcl};
+  my @nicks = $self->{irc}->channel_list($channel);
+  my @tcl_nicks = map { tcl_escape($_) } @nicks;
+  my $chanlist = "{".join(' ',@tcl_nicks)."}";
+  
+  my $chancmd = "cache put irc chanlist $chanlist";
+  $chancmd = "pub:tcl:perform {$nick} {$mask} {$handle} {$channel} {$chancmd}";
+  return $tcl->Eval("$chancmd;\npub:tcl:perform {$nick} {$mask} {$handle} {$channel} {$code}");
 }
+
+#not sure about this
+sub tcl_escape {
+    my ($tcl) = @_;
+    my @chars = split(//,$tcl);
+    my $escape = 0;
+    my @o = ();
+    while(@chars) {
+        my $char = shift @chars;
+        if (!$escape) {
+            if ($char eq "\\") {
+                $escape = 1;                
+            } elsif ($char eq '{') {
+                $char = "\\{";
+            } elsif ($char eq '}') {
+                $char = "\\}";
+            }
+
+        } else {
+            
+        }
+        push @o, $char;
+    }
+    return join("",@o);
+}
+
+
 
 1;
