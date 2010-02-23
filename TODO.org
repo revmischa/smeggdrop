@@ -38,6 +38,8 @@
    version => $ircname,
    userinfo => $ircname,
    ));
-
+** Spam limits!
+   We need to limit output to a reasonable length! Or enable a method
+   of interrupting it.
 
 
