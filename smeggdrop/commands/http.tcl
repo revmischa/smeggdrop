@@ -7,6 +7,7 @@ if ![info exists smeggdrop_http_transfer_limit]    {set smeggdrop_http_transfer_
 if ![info exists smeggdrop_http_time_limit]        {set smeggdrop_http_time_limit        5000}
 
 package require http
+package require TclCurl
 
 namespace eval httpx {
   http::config -useragent {Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10_5_6; en-us) AppleWebKit/525.27.1 (KHTML, like Gecko) Version/3.2.1 Safari/525.27.1}
@@ -95,6 +96,7 @@ namespace eval httpx {
   }
     
   proc http_read_progress_callback {token total current} {
+    puts "Callback: $token $total $current"
     upvar #0 $token state
     if {$current > [option transfer_limit]} {
       http::reset $token "transfer exceeded [option transfer_limit] bytes"
@@ -124,12 +126,40 @@ namespace eval httpx {
     http_handle_token $token
   }
     
+
+  proc http_get url {
+      set curlHandle [curl::init]
+      set html {}
+      $curlHandle configure -url $url -nosignal 1 -bodyvar html
+      catch { $curlHandle perform } curlErrorNumber
+      if { $curlErrorNumber != 0 } {
+          error [curl::easystrerror $curlErrorNumber]
+      }
+      set ret [list]
+      lappend ret [$curlHandle getinfo responsecode]
+      lappend ret {} 
+      # bad
+      lappend ret $html
+
+      $curlHandle cleanup
+
+      return $ret
+  }
+
+
+
   http_proc get url {
+    http::register http 80 socket
+    #puts "GET $url"
+    set html [http_get $url]
+    puts $html
+    #puts "We have the token! $url"
+    return $html
+    
     set token [http::geturl $url \
-      -blocksize 1024 \
-      -timeout   [option time_limit] \
-      -progress  ::httpx::http_read_progress_callback]
-        
+       -blocksize 1024 \
+       -timeout   [option time_limit] \
+       -progress  ::httpx::http_read_progress_callback]
     http_handle_token $token
   }
     

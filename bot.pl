@@ -35,6 +35,7 @@ for my $server (keys %{$config->{Server}}) {
   my $server    = $conf->{address} || warn "Unable to parse address for network $server" && next;
   my $port      = $conf->{port} || 6667;
   my $ssl       = $conf->{ssl}  ? 1 : 0;
+  my $flood     = ($conf->{flood} || $conf->{spam})?1:0;
 
   my $irc = POE::Component::IRC::State->spawn(
     nick      => $nick,
@@ -44,6 +45,7 @@ for my $server (keys %{$config->{Server}}) {
     server    => $server,
     port      => $port,
     usessl    => $ssl,
+    Flood     => $flood,
   ) or warn "Failed to spawn IRC component" && next;
 
   print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";

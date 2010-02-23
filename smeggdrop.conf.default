@@ -12,8 +12,8 @@ set smeggdrop_http_time_limit         5000                  ;# Maximum execution
 #
 # Publish settings - comment these out if you don't want [publish]
 #
-set smeggdrop_publish_url             http://www.example.org/           ;# URL to publish to
-set smeggdrop_publish_hostname        example.org                       ;# SSH hostname
-set smeggdrop_publish_username        myusername                        ;# SSH username
-set smeggdrop_publish_password        mypassword                        ;# SSH password
-set smeggdrop_publish_filename        /home/example/htdocs/index.txt    ;# Filename to write to
+# set smeggdrop_publish_url             http://www.example.org/           ;# URL to publish to
+# set smeggdrop_publish_hostname        example.org                       ;# SSH hostname
+# set smeggdrop_publish_username        myusername                        ;# SSH username
+# set smeggdrop_publish_password        mypassword                        ;# SSH password
+# set smeggdrop_publish_filename        /home/example/htdocs/index.txt    ;# Filename to write to

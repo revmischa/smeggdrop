@@ -34,7 +34,7 @@ sub Init {
             die "What is command: $command?";
         }
     };
-    my $fork_ring = ForkRing->new( code => $callback );
+    my $fork_ring = ForkRing->new( code => $callback, timeoutSeconds => 30 );
     $self->tcl( $fork_ring );
 }
 

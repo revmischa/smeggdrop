@@ -70,7 +70,7 @@ has hasForked         => ( is => 'rw', isa => 'Int', default => 0); #Pid
 has fromParentToChild => ( is => 'rw', isa => 'IO::Pipe');
 has fromChildToParent => ( is => 'rw', isa => 'IO::Pipe');
 has code              => ( is => 'rw', isa => 'CodeRef' );
-has timeoutSeconds    => ( is => 'rw', isa => 'Int', default => 10); #timeout time
+has timeoutSeconds    => ( is => 'rw', isa => 'Int', default => 30); #timeout time
 
 sub iopipe {
     my $pipe = IO::Pipe->new();
@@ -187,8 +187,12 @@ sub evalMsg {
             if (kill 0 => $pid) {
                 kill 9 => $pid;
             }
-            dwarn("A timeout occurred or the child died [$SUCCESS]");
-            $self->sendFailure( results => $results );
+            dwarn("A timeout occurred or the child died [".((defined($SUCCESS))?$SUCCESS:"undef")."]");
+            if ($@) {
+                $self->sendFailure( results => $@ );
+            } else {
+                $self->sendFailure( results => $results );
+            }
         } else {
             # send info to parent
             $self->sendSuccess(pid => $pid, results => $results);
@@ -209,9 +213,7 @@ sub evalMsg {
         _writeMsg($result_pipe, { type=> "SUCCESS", results => $res });
         close($result_pipe);
         $result_pipe = undef;
-    }    
-    
-
+    }
 }
 sub cleanUpChildren {
     my ($self) = @_;
