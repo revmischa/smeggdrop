@@ -48,7 +48,8 @@
 ** Read only state
    It'd be nice to have state which won't change
    This can be done with forks too
-
+** HTTP - LibCurl translation
+   Need to translate http into libcurl
    
 
 
