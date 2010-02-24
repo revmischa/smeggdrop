@@ -15,6 +15,7 @@ Requirements:
   - POE::Component::SSLify - if you want SSL
 - Tcl 8.4
   - tcllib
+  - TclCurl
 - Git
 
 Installation:
