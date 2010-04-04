@@ -6,6 +6,7 @@ use Config::General;
 use Carp::Always;
 use Data::Dump  qw/ddx/;
 use POE         qw/Component::IRC::State Component::IRC::Plugin::Connector/;
+use POE::Component::IRC::Plugin::AutoJoin;
 
 use lib 'lib';
 
@@ -69,6 +70,18 @@ for my $server (keys %{$config->{Server}}) {
   );
 }
 
+sub get_our_channels {
+  my ($heap) = @_;
+  my %channels = ();
+  if(ref($heap->{conf}->{Channels}->{default})) {
+    $channels{$_} = '' for @{$heap->{conf}->{Channels}->{default}};
+  } else {
+    my $key = $heap->{conf}->{Channels}->{default};
+    $channels{$key} = '';
+  }
+  return %channels;
+}
+
 sub _start {
   my ($kernel, $heap) = @_[KERNEL,HEAP];
 
@@ -77,7 +90,9 @@ sub _start {
   $heap->{connector} = POE::Component::IRC::Plugin::Connector->new();
   $heap->{irc}->plugin_add( 'Connector' => $heap->{connector} );
 
+  my %channels = get_our_channels( $heap );
 
+  $heap->{irc}->plugin_add( 'AutoJoin', POE::Component::IRC::Plugin::AutoJoin->new( Channels => \%channels, RejoinOnKick => 1, Retry_when_banned => 60 ));
   $heap->{irc}->yield('connect');
 }
 
