@@ -73,6 +73,11 @@ sub _start {
   my ($kernel, $heap) = @_[KERNEL,HEAP];
 
   $heap->{irc}->yield(register  => 'all');
+
+  $heap->{connector} = POE::Component::IRC::Plugin::Connector->new();
+  $heap->{irc}->plugin_add( 'Connector' => $heap->{connector} );
+
+
   $heap->{irc}->yield('connect');
 }
 
