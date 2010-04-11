@@ -103,12 +103,9 @@ sub call {
 
   my $tcl = $self->{tcl};
   my @nicks = $self->{irc}->channel_list($ochannel);
-  ddx(ref($self->{irc}));
-  ddx($self->{irc}->channels);
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
-  ddx("$ochannel: @nicks , @tcl_nicks");
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
-  ddx($chanlist);
+
 
   # update the chanlist
   my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
