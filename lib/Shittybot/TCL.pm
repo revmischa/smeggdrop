@@ -101,17 +101,19 @@ sub call {
   my @nicks = $self->{irc}->channel_list($channel);
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
-  
+  warn "CHANLIST: $chanlist";
   # update the chanlist
-  my $chancmd = tcl_escape("cache put irc chanlist ".$chanlist);
+  my $chancmd = tcl_escape("cache put irc chanlist $chanlist");
+  warn "PRE: $chancmd";
   $chancmd = "pub:tcl:perform $nick $mask $handle $channel $chancmd";
+  warn $chancmd;
   # perform the actual command
   return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
 }
 
 #not sure about this
 sub tcl_escape {
-    return TclEscape::escape($_);
+    return TclEscape::escape($_[0]);
 }
 
 

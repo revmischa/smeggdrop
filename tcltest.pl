@@ -21,8 +21,14 @@ $s->non_poe_start();
 $s->{irc} = FakeIRC->new();
 #my $res = $s->call("nick","mask","handle","channel","tcl proc . args {join $args}");
 my $res = $s->call("nick","mask","handle","channel","proc . args {join \$args}");
-print $res,$/;
 #my $res = $s->call("nick","mask","handle","channel","tcl . .");
 my $res = $s->call("nick","mask","handle","channel",". .");
-print $res,$/;
-
+die "[$res] not eq to ." unless $res eq ".";
+my @names = $s->{irc}->channel_list;
+my %names = ();
+$names{$_}++ foreach @names;
+my $res = $s->call("nick","mask","handle","channel","names");
+my @newnames = split(/\s+/, $res);
+foreach my $name (@newnames) {
+    die "[$name] not found!" unless $names{$name};
+}

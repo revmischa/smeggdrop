@@ -125,7 +125,16 @@ sub irc_public {
 
     my $out   = $heap->{tcl}->call($nick,$mask,'',${$channels}[0],$code);
 
-    $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
+    $out =~ s/[\000-\007]/ /g;
+    my @lines = split( /\n/, $out);
+    my $limit = $heap->{conf}->{linelimit} || 20;
+    if (@lines > $limit) {
+        my $n = @lines; 
+        @lines = @lines[0..($limit-1)];
+        push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
+    }
+    $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for @lines;
+    #$heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
   }
 }
 
