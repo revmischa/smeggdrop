@@ -22,7 +22,7 @@ sub parse_config {
   return \%configuration;
 }
 
-my %states;
+#my %states;
 my $config  = parse_config;
 
 for my $server (keys %{$config->{Server}}) {
@@ -51,11 +51,12 @@ for my $server (keys %{$config->{Server}}) {
 
   print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";
 
-  if (!$states{$conf->{state}}) {
-    my $tcl = Shittybot::TCL->spawn($conf->{state},$irc);
-    $states{$conf->{state}} = $tcl;
-    print "Spawned TCL master for state $conf->{state}\n";
-  }
+  #if (!$states{$conf->{state}}) {
+  my $tcl = Shittybot::TCL->spawn($conf->{state},$irc);
+  #$states{$conf->{state}} = $tcl;
+  ddx($conf->{state} . " has a tcl set!");
+  print "Spawned TCL master for state $conf->{state}\n";
+  #}
 
 
   POE::Session->create(
@@ -65,7 +66,7 @@ for my $server (keys %{$config->{Server}}) {
     heap  => {
       irc   => $irc,
       conf  => $conf,
-      tcl   => $states{$conf->{state}},
+      tcl   => $tcl, #$states{$conf->{state}},
     },
   );
 }

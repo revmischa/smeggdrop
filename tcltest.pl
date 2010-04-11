@@ -30,5 +30,5 @@ $names{$_}++ foreach @names;
 my $res = $s->call("nick","mask","handle","channel","names");
 my @newnames = split(/\s+/, $res);
 foreach my $name (@newnames) {
-    die "[$name] not found!" unless $names{$name};
+    die "[$name] not found! [$res]" unless $names{$name};
 }

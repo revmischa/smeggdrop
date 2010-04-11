@@ -4,6 +4,7 @@ package Shittybot::TCL;
 
 #use POE   qw/Wheel::Run/;
 use Data::Dump  qw/ddx/;
+use Data::Dumper qw(Dumper);
 #use Shittybot::TCL::Child;
 
 use Shittybot::TCL::ForkedTcl;
@@ -93,20 +94,22 @@ sub create_tcl {
 sub call {
   my $self  = shift;
   my ($nick,$mask,$handle,$channel,$code) = @_;
-
+  my $ochannel = $channel;
   ddx(@_);
   ($nick,$mask,$handle,$channel,$code) = map { tcl_escape($_) } ($nick,$mask,$handle,$channel,$code);
 
   my $tcl = $self->{tcl};
-  my @nicks = $self->{irc}->channel_list($channel);
+  my @nicks = $self->{irc}->channel_list($ochannel);
+  ddx(ref($self->{irc}));
+  ddx($self->{irc}->channels);
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
+  ddx("$ochannel: @nicks , @tcl_nicks");
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
-  warn "CHANLIST: $chanlist";
+  ddx($chanlist);
+
   # update the chanlist
-  my $chancmd = tcl_escape("cache put irc chanlist $chanlist");
-  warn "PRE: $chancmd";
-  $chancmd = "pub:tcl:perform $nick $mask $handle $channel $chancmd";
-  warn $chancmd;
+  my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
+  my $chancmd = "pub:tcl:perform $nick $mask $handle $channel $update_chanlist";
   # perform the actual command
   return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
 }
