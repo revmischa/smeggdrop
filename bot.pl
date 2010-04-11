@@ -22,12 +22,11 @@ sub parse_config {
   return \%configuration;
 }
 
-#my %states;
+my %states;
 my $config  = parse_config;
 
 for my $server (keys %{$config->{Server}}) {
   my $conf  = $config->{Server}->{$server};
-
 
   my $nick      = $conf->{nickname} || 'dickbot',
   my $username  = $conf->{username} || 'urmom',
@@ -51,12 +50,12 @@ for my $server (keys %{$config->{Server}}) {
 
   print "Spawned IRC component to $server $port with nick $nick, user $username, name $ircname ssl $ssl\n";
 
-  #if (!$states{$conf->{state}}) {
-  my $tcl = Shittybot::TCL->spawn($conf->{state},$irc);
-  #$states{$conf->{state}} = $tcl;
-  ddx($conf->{state} . " has a tcl set!");
-  print "Spawned TCL master for state $conf->{state}\n";
-  #}
+  if (!$states{$conf->{state}}) {
+      my $tcl = Shittybot::TCL->spawn($conf->{state},$irc);
+      $states{$conf->{state}} = $tcl;
+      ddx($conf->{state} . " has a tcl set!");
+      print "Spawned TCL master for state $conf->{state}\n";
+  }
 
 
   POE::Session->create(
@@ -66,7 +65,7 @@ for my $server (keys %{$config->{Server}}) {
     heap  => {
       irc   => $irc,
       conf  => $conf,
-      tcl   => $tcl, #$states{$conf->{state}},
+      tcl   => $states{$conf->{state}},
     },
   );
 }
@@ -113,7 +112,6 @@ sub irc_public {
   my ($kernel,$heap,$who,$channels,$message)  = @_[KERNEL,HEAP,ARG0 .. ARG2];
 
   my $trigger = $heap->{conf}->{trigger};
-
   print STDERR "got message: $message\n";
   if ($message  =~ qr/$trigger/) {
     print "Got trigger $message\n";
@@ -129,6 +127,8 @@ sub irc_public {
     $out =~ s/[\000-\007]/ /g;
     my @lines = split( /\n/, $out);
     my $limit = $heap->{conf}->{linelimit} || 20;
+    # split lines if they are too long
+    @lines = map { chunkby($_, 420) } @lines;
     if (@lines > $limit) {
         my $n = @lines; 
         @lines = @lines[0..($limit-1)];
@@ -144,5 +144,17 @@ sub _default {
 
 #  ddx($event);
 }
+
+sub chunkby {
+        my ($a,$len) = @_;
+        my @out = ();
+        while (length($a) > $len) {
+                push @out,substr($a,0,$len);
+                $a = substr($a,$len);
+        }
+        push @out, $a if ($a);
+        return @out;
+}
+
 
 POE::Kernel->run();

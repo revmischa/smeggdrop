@@ -1,6 +1,7 @@
 #!/usr/bin/perl
-
 package Shittybot::TCL;
+
+use strict;
 
 #use POE   qw/Wheel::Run/;
 use Data::Dump  qw/ddx/;
@@ -12,13 +13,15 @@ use Shittybot::TCL::ForkedTcl;
 use Tcl;
 
 use TclEscape;
-
+use POE;
 
 #this is for testing and making a new object without POE
 sub new {
   my $class = shift;
   my $state = shift; #statepath!
   my $irc   = shift;
+
+  my $self = {};
 
   $self->{state}  = $state;
   $self->{irc}    = $irc;
