@@ -1,5 +1,5 @@
 * TODO of Smeggdrop
-** Quoting hell
+** DONE - Quoting hell
    - fix the quoting
 ** DONE - Spamming
    - when flood-lined the bot should spam like no tomorrow
@@ -22,7 +22,7 @@
    - There needs to be better error messages on death
 ** HTTP Proxy
    - Not sure if we need this but an HTTP proxy might help
-** Tests!
+** SORTA Tests!
    - Test Framework
 ** DONE -- POCO Bot stuff
    We could add all of this great stuff:
@@ -40,7 +40,7 @@
    version => $ircname,
    userinfo => $ircname,
    ));
-** Spam limits!
+** DONE Spam limits!
    We need to limit output to a reasonable length! Or enable a method
    of interrupting it.
 ** Shared State
@@ -50,7 +50,7 @@
 ** Read only state
    It'd be nice to have state which won't change
    This can be done with forks too
-** HTTP - LibCurl translation
+** DONE HTTP - LibCurl translation
    Need to translate http into libcurl
    
 
