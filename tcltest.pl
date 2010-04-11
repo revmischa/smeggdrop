@@ -13,6 +13,10 @@ print $tcl->EvalFile("smeggdrop.tcl"),$/;
 print $tcl->Eval("return w"),$/;
 print $tcl->Eval("pub:tcl:perform nick mask handle channel  {return what}"),$/;
 print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http get http://localhost}"),$/;
+print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://localhost a b}"),$/;
+
+print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://localhost [list]}"),$/;
+print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://localhost [list a b]}"),$/;
 
 use Shittybot::TCL;
 

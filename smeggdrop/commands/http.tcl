@@ -146,39 +146,67 @@ namespace eval httpx {
       return $ret
   }
 
+    proc http_post {url body} {
+      set curlHandle [curl::init]
+      set html {}
+      $curlHandle configure -url $url -nosignal 1 -bodyvar html -post 1 -postfields $body
+      catch { $curlHandle perform } curlErrorNumber
+      if { $curlErrorNumber != 0 } {
+          error [curl::easystrerror $curlErrorNumber]
+      }
+      set ret [list]
+      lappend ret [$curlHandle getinfo responsecode]
+      lappend ret {} 
+      # bad
+      lappend ret $html
+
+      $curlHandle cleanup
+
+      return $ret
+  }
+
 
 
   http_proc get url {
-    http::register http 80 socket
+    #http::register http 80 socket
     #puts "GET $url"
     set html [http_get $url]
     puts $html
     #puts "We have the token! $url"
     return $html
     
-    set token [http::geturl $url \
-       -blocksize 1024 \
-       -timeout   [option time_limit] \
-       -progress  ::httpx::http_read_progress_callback]
-    http_handle_token $token
+    #set token [http::geturl $url \
+    #   -blocksize 1024 \
+    #   -timeout   [option time_limit] \
+    #   -progress  ::httpx::http_read_progress_callback]
+    #http_handle_token $token
   }
     
   http_proc post {url body args} {
+    http::register http 80 socket
+    #puts "GET $url"
+
     if [llength $args] {
       set body [eval http::formatQuery [concat [list $body] $args]]
     }
 
-    if {[string length $body] > [option post_limit]} {
+    if {[string length "$body"] > [option post_limit]} {
       error "post body exceeds [option post_limit] bytes"
     }
+
+    set html [http_post $url $body]
+    puts $html
+    #puts "We have the token! $url"
+    return $html
+
         
-    set token [http::geturl $url \
-      -blocksize 1024 \
-      -timeout   [option time_limit] \
-      -progress  ::httpx::http_read_progress_callback \
-      -query     $body]
+    #set token [http::geturl $url \
+    #  -blocksize 1024 \
+    #  -timeout   [option time_limit] \
+    #  -progress  ::httpx::http_read_progress_callback \
+    #  -query     $body]
         
-    http_handle_token $token
+    #http_handle_token $token
   }
 }
 
