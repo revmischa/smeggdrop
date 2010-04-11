@@ -1,5 +1,7 @@
 * TODO of Smeggdrop
-** Spamming
+** Quoting hell
+   - fix the quoting
+** DONE - Spamming
    - when flood-lined the bot should spam like no tomorrow
 ** Latency
    - Why does it take so long to respond?
@@ -22,7 +24,7 @@
    - Not sure if we need this but an HTTP proxy might help
 ** Tests!
    - Test Framework
-** POCO Bot stuff
+** DONE -- POCO Bot stuff
    We could add all of this great stuff:
 
    use POE qw(Component::IRC Component::IRC::Plugin::Connector);

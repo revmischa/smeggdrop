@@ -1,6 +1,17 @@
 package TclEscape;
 
+
+#assume the tcl is unescaped
 sub escape {
+    my ($tcl) = @_;
+    my $o = $tcl;
+    $tcl =~ s/\\/\\\\/g;
+    $tcl =~ s/([\[\]}{])/\\$1/g;
+    my $interpolated = $tcl;
+    return "\"${interpolated}\""
+}
+
+sub brace_escape {
     my ($tcl) = @_;
     #$tcl =~ s#\\#\\\\#g;
     #$tcl =~ s#}#\\}#g;
@@ -50,7 +61,7 @@ sub not_balanced {
     return $bool;
 }
 
-sub escape_test {
+sub brace_escape_test {
     my $x1 = 'djksala sldjasl djaldajdklsajdlask jdalsk';
     my $proc = "tcl proc crash {} {string repeat x 2147483644}";
     my $e = "\\";
