@@ -120,31 +120,38 @@ namespace eval httpx {
     http::cleanup $token
     return $ret
   }
-    
-  http_proc head url {
-    set token [http::geturl $url -validate 1 -timeout [option time_limit]]
-    http_handle_token $token
-  }
+
     
 
   proc http_get url {
       set curlHandle [curl::init]
       set html {}
-      $curlHandle configure -url $url -nosignal 1 -bodyvar html
+      array set http_resp_header [list]
+      $curlHandle configure -url $url -nosignal 1 -bodyvar html -headervar http_resp_header
       catch { $curlHandle perform } curlErrorNumber
       if { $curlErrorNumber != 0 } {
           error [curl::easystrerror $curlErrorNumber]
       }
       set ret [list]
       lappend ret [$curlHandle getinfo responsecode]
-      lappend ret {} 
-      # bad
+      lappend ret [array get http_resp_header]
       lappend ret $html
-
+      array unset http_resp_header
       $curlHandle cleanup
 
       return $ret
   }
+
+  http_proc head url {
+      set resp [http_get $url]
+      #puts [lindex $resp 1]
+    #puts "We have the token! $url"
+      return [lindex $resp 1]
+    #set token [http::geturl $url -validate 1 -timeout [option time_limit]]
+    #http_handle_token $token
+  }
+    
+
 
     proc http_post {url body} {
       set curlHandle [curl::init]
@@ -171,7 +178,7 @@ namespace eval httpx {
     #http::register http 80 socket
     #puts "GET $url"
     set html [http_get $url]
-    puts $html
+    #puts $html
     #puts "We have the token! $url"
     return $html
     
@@ -183,7 +190,7 @@ namespace eval httpx {
   }
     
   http_proc post {url body args} {
-    http::register http 80 socket
+    #http::register http 80 socket
     #puts "GET $url"
 
     if [llength $args] {
@@ -195,7 +202,7 @@ namespace eval httpx {
     }
 
     set html [http_post $url $body]
-    puts $html
+    #puts $html
     #puts "We have the token! $url"
     return $html
 

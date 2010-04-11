@@ -17,6 +17,10 @@ print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://lo
 
 print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://localhost [list]}"),$/;
 print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http post http://localhost [list a b]}"),$/;
+print "Now test head$/";
+print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http head http://localhost}"),$/;
+
+
 
 use Shittybot::TCL;
 
