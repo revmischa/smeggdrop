@@ -1,0 +1,10 @@
+#!/bin/bash
+ulimit -v 500000 -m 500000
+echo Running bot $$
+LANG=en_CA.UTF-8
+#PERL_DL_NONLAZY=1 perl -CIOESDA bot.pl
+#PERL_DL_NONLAZY=1 perl -C bot.pl
+echo  tcltest
+PERL_DL_NONLAZY=1 perl -C tcltest.pl
+echo  test-runner
+PERL_DL_NONLAZY=1 perl -C test-runner.pl

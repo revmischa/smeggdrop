@@ -6,7 +6,7 @@ sub escape {
     my ($tcl) = @_;
     my $o = $tcl;
     $tcl =~ s/\\/\\\\/g;
-    $tcl =~ s/([\[\]}{])/\\$1/g;
+    $tcl =~ s/([\[\]}{\$"])/\\$1/g;
     my $interpolated = $tcl;
     return "\"${interpolated}\""
 }
@@ -61,6 +61,49 @@ sub not_balanced {
     return $bool;
 }
 
+sub _quote {
+    return "\"$_[0]\"";
+}
+sub escape_test {
+    my $x1 = 'djksala sldjasl djaldajdklsajdlask jdalsk';
+    my $proc = "tcl proc crash {} {string repeat x 2147483644}";
+    my $proco = 'tcl proc crash \\{\\} \\{string repeat x 2147483644\\}';
+    #warn $proco;
+    my $e = "\\";
+    my @tests = (
+                 ["Escape \"",     "\"", "\"\\\"\""],
+                 ["No escape", $x1, _quote($x1)],
+                 ["Let a proc through",$proc, _quote($proco)],
+                 ["Escape brace}", "}", '"\\}"'],
+                 ["Escape brace{", "{", '"\\{"'],
+                 ["Escape braces1", "{}", '"\\{\\}"'],
+                 #["Escape braces2", "}{", "}{"], #no clue
+                 ["Escaped braces2", "\\}", "\"${e}${e}${e}}\""], # \} -> \\\}
+                 ["Escaped braces3", "\\{", "\"${e}${e}${e}{\""],
+                 ["Escaped escape", "$e", "\"$e$e\""],
+                 ["Escaped escape2", "$e$e", "\"$e$e$e$e\""],
+                 ["Escaped escape3 unbalance", "}${e}${e}{", "\"$e}$e$e$e$e${e}{\""],
+                 ["Escape fun", "\\{{}\\}","\"${e}${e}${e}{${e}{${e}}${e}${e}${e}}\""],
+                 ["More Escape fun", "\\{", "\"\\\\\\{\""],
+
+                 ["Balanced","{{{}}}","\"\\{\\{\\{\\}\\}\\}\""],
+                 ["Tricky tcl","{{{\\}}}}","\"\\{\\{\\{\\\\\\}\\}\\}\\}\""],
+
+                );
+    my $failures = 0;
+    foreach my $test (@tests) {
+        my ($name, $in,$out) = @$test;
+        my $outp = escape($in);
+        if ($outp ne $out) {
+            print "Test [$name] failed: [$outp] ne expected [$out]  -- input was [$in] $/";
+            $failures++;
+        }
+    }
+    die "$failures/".scalar(@tests)." tests failed!" if $failures;
+}
+
+
+
 sub brace_escape_test {
     my $x1 = 'djksala sldjasl djaldajdklsajdlask jdalsk';
     my $proc = "tcl proc crash {} {string repeat x 2147483644}";
@@ -77,10 +120,11 @@ sub brace_escape_test {
                  ["Escaped escape", "$e", "$e$e"],
                  ["Escaped escape2", "$e$e", "$e$e$e$e"],
                  ["Escaped escape3 unbalance", "}$e${e}{", "$e}$e$e$e$e${e}{"],
-                 ["Escape fun", "\\{{}\\}","\\{{}\\}"],
-                 ["More Escape fun", "\\{", "\\{"],
                  ["Balanced","{{{}}}","{{{}}}"],
                  ["Tricky tcl","{{{\\}}}}","{{{\\}}}}"],
+                 ["Escape fun", "\\{{}\\}","\\{{}\\}"],
+                 ["More Escape fun", "\\{", "\\{"],
+
                 );
     my $failures = 0;
     foreach my $test (@tests) {

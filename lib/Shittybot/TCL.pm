@@ -12,16 +12,25 @@ use Tcl;
 
 use TclEscape;
 
-sub spawn {
+
+#this is for testing and making a new object without POE
+sub new {
   my $class = shift;
-  my $state = shift;
+  my $state = shift; #statepath!
   my $irc   = shift;
-  my $self  = {};
 
   $self->{state}  = $state;
   $self->{irc}    = $irc;
 
-  bless ($self,$class);
+  bless ($self,$class); # this is bad
+  return $self;
+}
+
+sub spawn {
+  my $class = shift;
+  my $state = shift;
+  my $irc   = shift;
+  my $self  = $class->new($state, $irc);
 
   POE::Session->create(
     object_states => [
@@ -34,8 +43,13 @@ sub spawn {
 
 sub _start {
   my $self  = $_[OBJECT];
+  $self->non_poe_start();
+  
+}
 
-  $self->{tcl}  = $self->load_state($self->{state});
+sub non_poe_start {
+    my $self = shift;
+    $self->{tcl}  = $self->load_state($self->{state});
 }
 
 sub _tcl_in {
@@ -89,7 +103,7 @@ sub call {
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
   
   # update the chanlist
-  my $chancmd = "cache put irc chanlist $chanlist";
+  my $chancmd = tcl_escape("cache put irc chanlist ".$chanlist);
   $chancmd = "pub:tcl:perform $nick $mask $handle $channel $chancmd";
   # perform the actual command
   return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
