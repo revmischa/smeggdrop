@@ -101,6 +101,19 @@ sub irc_001 {
 
   print "Connected to ", $heap->{irc}->server_name, "\n";
 
+  if ($heap->{conf}->{nickpass}) {
+      my $pass = $heap->{conf}->{nickpass};
+      my $nickserv = $heap->{conf}->{nickserv} || "nickserv";
+      $heap->{irc}->yield(privmsg  => $nickserv  => "identify $pass");
+  }
+
+  if ($heap->{conf}->{operuser}) {
+      my $user = $heap->{conf}->{operuser};
+      my $pass = $heap->{conf}->{operpass};
+      $heap->{irc}->yield( oper => $user => $pass );
+  }
+
+
   if(ref($heap->{conf}->{Channels}->{default})) {
     $heap->{irc}->yield(join => "#$_") for (@{$heap->{conf}->{Channels}->{default}});
   } else {
@@ -124,7 +137,7 @@ sub irc_public {
 
     my $out   = $heap->{tcl}->call($nick,$mask,'',${$channels}[0],$code);
 
-    $out =~ s/[\000-\007]/ /g;
+    $out =~ s/[\000-\001]/ /g;
     my @lines = split( /\n/, $out);
     my $limit = $heap->{conf}->{linelimit} || 20;
     # split lines if they are too long

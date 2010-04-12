@@ -11,3 +11,22 @@
     default shittybot
   </Channels>
 </Server>
+<Server NetworkName2>
+  address host.name
+  nickname shittybot
+  username shitty
+  realname not a very good bot
+  
+  nickserv SuperNickServ
+  nickpass WtH6457
+
+  operuser ops
+  operpass ops5232
+
+  state state-networkname/
+  trigger ^t\s
+ 
+  <Channels>
+    default shittybot
+  </Channels>
+</Server>
