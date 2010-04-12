@@ -136,8 +136,10 @@ sub irc_public {
     $mask     =~ s/^[^!]+!//;
 
     my $out   = $heap->{tcl}->call($nick,$mask,'',${$channels}[0],$code);
-
+    
+    $out =~ s/\001ACTION /\0777ACTION /g;
     $out =~ s/[\000-\001]/ /g;
+    $out =~ s/\0777ACTION /\001ACTION /g;
     my @lines = split( /\n/, $out);
     my $limit = $heap->{conf}->{linelimit} || 20;
     # split lines if they are too long
