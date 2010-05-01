@@ -5,8 +5,6 @@ use warnings;
 use Config::General;
 use Carp::Always;
 use Data::Dump  qw/ddx/;
-use POE         qw/Component::IRC::State Component::IRC::Plugin::Connector/;
-use POE::Component::IRC::Plugin::AutoJoin;
 
 
 use 5.01;

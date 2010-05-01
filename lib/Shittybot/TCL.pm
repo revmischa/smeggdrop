@@ -1,9 +1,9 @@
 #!/usr/bin/perl
 package Shittybot::TCL;
 
+use 5.01;
 use strict;
-
-#use POE   qw/Wheel::Run/;
+use warnings;
 use Data::Dump  qw/ddx/;
 use Data::Dumper qw(Dumper);
 #use Shittybot::TCL::Child;
@@ -11,11 +11,9 @@ use Data::Dumper qw(Dumper);
 use Shittybot::TCL::ForkedTcl;
 
 use Tcl;
-
 use TclEscape;
-use POE;
 
-#this is for testing and making a new object without POE
+
 sub new {
   my $class = shift;
   my $state = shift; #statepath!
@@ -35,37 +33,8 @@ sub spawn {
   my $state = shift;
   my $irc   = shift;
   my $self  = $class->new($state, $irc);
-
-  POE::Session->create(
-    object_states => [
-      $self => [qw/_start _tcl_in _tcl_out _tcl_chld/],
-    ],
-  );
-
+  $self->{tcl}  = $self->load_state($self->{state});
   return $self;
-}
-
-sub _start {
-  my $self  = $_[OBJECT];
-  $self->non_poe_start();
-  
-}
-
-sub non_poe_start {
-    my $self = shift;
-    $self->{tcl}  = $self->load_state($self->{state});
-}
-
-sub _tcl_in {
-
-}
-
-sub _tcl_out {
-
-}
-
-sub _tcl_chld {
-
 }
 
 
@@ -96,10 +65,10 @@ sub create_tcl {
 
 sub call {
   my $self  = shift;
-  my ($nick,$mask,$handle,$channel,$code) = @_;
+  my ($nick, $mask, $handle, $channel, $code) = @_;
   my $ochannel = $channel;
   ddx(@_);
-  ($nick,$mask,$handle,$channel,$code) = map { tcl_escape($_) } ($nick,$mask,$handle,$channel,$code);
+  ($nick, $mask, $handle, $channel, $code) = map { tcl_escape($_) } ($nick, $mask, $handle, $channel, $code);
 
   my $tcl = $self->{tcl};
   my @nicks = keys %{$self->{irc}->channel_list($ochannel)};
@@ -118,9 +87,5 @@ sub call {
 sub tcl_escape {
     return TclEscape::escape($_[0]);
 }
-
-
-
-
 
 1;
