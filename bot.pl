@@ -10,7 +10,7 @@ use POE::Component::IRC::Plugin::AutoJoin;
 
 
 use 5.01;
-
+use Data::Dumper;
 use AnyEvent::IRC::Client;
 use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
@@ -139,7 +139,7 @@ my $parse_privmsg = sub {
     my $nick = prefix_nick($from);
     my $mask = prefix_user($from)."@".prefix_host($from);
     say "Got trigger: [$trigger] $code";
-    my $out =  $states{$conf->{state}}->{tcl}->call($nick, $mask, '', $chan, $code);
+    my $out =  $states{$conf->{state}}->call($nick, $mask, '', $chan, $code);
     $client->send_chan($chan, 'PRIVMSG', $chan, $out);
   }
 };
@@ -147,39 +147,6 @@ my $parse_privmsg = sub {
 
 $client->reg_cb(irc_privmsg => $parse_privmsg);
 
-
-# sub irc_public {
-#   my ($kernel,$heap,$who,$channels,$message)  = @_[KERNEL,HEAP,ARG0 .. ARG2];
-
-#   my $trigger = $heap->{conf}->{trigger};
-#   print STDERR "got message: $message\n";
-#   if ($message  =~ qr/$trigger/) {
-#     print "Got trigger $message\n";
-#     my $code  = $message;
-#     $code     =~ s/$trigger//;
-
-#     my $nick  = ($who =~ /^([^!]+)/)[0];
-#     my $mask  = $who;
-#     $mask     =~ s/^[^!]+!//;
-
-#     my $out   = $heap->{tcl}->call($nick,$mask,'',${$channels}[0],$code);
-    
-#     $out =~ s/\001ACTION /\0777ACTION /g;
-#     $out =~ s/[\000-\001]/ /g;
-#     $out =~ s/\0777ACTION /\001ACTION /g;
-#     my @lines = split( /\n/, $out);
-#     my $limit = $heap->{conf}->{linelimit} || 20;
-#     # split lines if they are too long
-#     @lines = map { chunkby($_, 420) } @lines;
-#     if (@lines > $limit) {
-#         my $n = @lines; 
-#         @lines = @lines[0..($limit-1)];
-#         push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
-#     }
-#     $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for @lines;
-#     #$heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
-#   }
-# }
 
 
 
