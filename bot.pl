@@ -140,7 +140,7 @@ my $parse_privmsg = sub {
     my $mask = prefix_user($from)."@".prefix_host($from);
     say "Got trigger: [$trigger] $code";
     my $out =  $states{$conf->{state}}->call($nick, $mask, '', $chan, $code);
-    $client->send_chan($chan, 'PRIVMSG', $chan, $out);
+    $client->send_chan($chan, 'PRIVMSG', $chan, $_) foreach split '\n' => $out;
   }
 };
 
