@@ -12,7 +12,7 @@ use POE::Component::IRC::Plugin::AutoJoin;
 use 5.01;
 
 use AnyEvent::IRC::Client;
-use AnyEvent::IRC::Util qw/prefix_nick mk_msg/;
+use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
 use lib 'lib';
 
@@ -40,24 +40,11 @@ my $nickservpw = undef;
 my %states;
 
 if (!$states{$conf->{state}}) {
-  my $tcl = Shittybot::TCL->spawn($conf->{state},$client);
+  my $tcl = Shittybot::TCL->spawn($conf->{state}, $client);
   $states{$conf->{state}} = $tcl;
   ddx($conf->{state} . " has a tcl set!");
   print "Spawned TCL master for state $conf->{state}\n";
 }
-
-
-# POE::Session->create(
-# 		     package_states  => [
-# 					 main  => [qw/_default _start irc_001 irc_public/],
-# 					],
-# 		     heap  => {
-# 			       irc   => $client,
-# 			       conf  => $conf,
-# 			       tcl   => $states{$conf->{state}},
-# 			      },
-# 		    );
-
 
 
 
@@ -147,7 +134,13 @@ my $parse_privmsg = sub {
     say $client->send_msg('WHOIS', prefix_nick($from));
   }
   if ($msg->{params}->[-1] =~ qr/$trigger/) {
-    $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION Have received a tcl command!");
+    my $code = $msg->{params}->[-1];
+    $code =~ s/$trigger//;
+    my $nick = prefix_nick($from);
+    my $mask = prefix_user($from)."@".prefix_host($from);
+    say "Got trigger: [$trigger] $code";
+    my $out =  $states{$conf->{state}}->{tcl}->call($nick, $mask, '', $chan, $code);
+    $client->send_chan($chan, 'PRIVMSG', $chan, $out);
   }
 };
 

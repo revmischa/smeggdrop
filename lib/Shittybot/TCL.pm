@@ -103,6 +103,8 @@ sub call {
 
   my $tcl = $self->{tcl};
   my @nicks = $self->{irc}->channel_list($ochannel);
+  print Dumper(@nicks);
+  return 'x';
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
 
