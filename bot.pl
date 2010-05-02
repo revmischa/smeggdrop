@@ -128,13 +128,30 @@ sub make_client {
              return unless $nick eq $client->nick;
              say "Kicked from $channel; rejoining";
              $client->send_srv('JOIN', $channel);
+
+	     # keep trying to rejoin
+	     $client->{rejoins}{$channel} = AnyEvent->timer(
+                after => 10,
+                interval => 60,
+                cb => sub {
+		    warn "attemping to rejoin $channel";
+		    $client->send_srv('JOIN', $channel);
+                },
+            );
          },
-         nick_change => sub {
-             my ($self, $old_nick, $new_nick, $is_myself) = @_;
+         kick => sub {
+             my ($self, $nick, $channel, $is_myself) = @_;
              return unless $is_myself;
-             return if $new_nick eq $botnick;
-             $getNick->($botnick);
-         });
+
+	     delete $client->{rejoins}{$channel};
+	},
+	nick_change => sub {
+	    my ($self, $old_nick, $new_nick, $is_myself) = @_;
+	    return unless $is_myself;
+	    return if $new_nick eq $botnick;
+	    $getNick->($botnick);
+	},
+    );
 
 
     $client->ctcp_auto_reply ('VERSION', ['VERSION', 'Smeggdrop']);
@@ -172,7 +189,11 @@ sub make_client {
             my $mask = prefix_user($from)."@".prefix_host($from);
             say "Got trigger: [$trigger] $code";
             my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
-            $client->send_chan($chan, 'PRIVMSG', $chan, $_) foreach split '\n' => $out;
+
+	    foreach my $l (split "\n", $out) {
+		utf8::encode($l);
+		$client->send_chan($chan, 'PRIVMSG', $chan, $l);
+	    }
         }
     };
 
