@@ -11,6 +11,7 @@ use 5.01;
 use utf8;
 use Data::Dumper;
 use AnyEvent::IRC::Client;
+use AnyEvent::Socket;
 use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
 use lib 'lib';
@@ -45,10 +46,11 @@ $cond->wait;
 sub make_client {
     my ($conf) = @_;
 
-    my $client = new AnyEvent::IRC::Client;
+    my $client = new AnyEvent::IRC::Client::Pre;
 
     # config
     my $botnick    = $conf->{nickname};
+    my $bindip     = $conf->{bindip};
     my $channels   = $conf->{channels};
     my $botreal    = $conf->{realname};
     my $botident   = $conf->{username};
@@ -134,13 +136,12 @@ sub make_client {
                 after => 10,
                 interval => 60,
                 cb => sub {
-		    warn "attemping to rejoin $channel";
 		    $client->send_srv('JOIN', $channel);
                 },
             );
          },
          join => sub {
-             my ($self, $nick, $channel, $is_myself) = @_;
+	     my ($self, $nick, $channel, $is_myself) = @_;
              return unless $is_myself;
 
 	     delete $client->{rejoins}{$channel};
@@ -202,7 +203,17 @@ sub make_client {
     $init = sub {
         $client->send_srv('PRIVMSG' => $nickserv, "identify $nickservpw") if defined $nickservpw;
         $client->connect (
-            $botserver, 6667, { nick => $botnick, user => $botident, real => $botreal }
+            $botserver, 6667, { nick => $botnick, user => $botident, real => $botreal },
+	    sub {
+		my ($fh) = @_;
+
+		if ($bindip) {
+		    my $bind = AnyEvent::Socket::pack_sockaddr(undef, parse_address($bindip));
+		    bind $fh, $bind;
+		}
+        
+		return 30;
+	    },
         );
 
         foreach my $chan (@$channels) {
@@ -238,3 +249,36 @@ sub chunkby {
     return @out;
 }
 
+
+# overload the IRC::Client connect method to let us defined a prebinding callback
+package AnyEvent::IRC::Client::Pre;
+
+use strict;
+use warnings;
+use AnyEvent::IRC::Connection;
+
+use parent 'AnyEvent::IRC::Client';
+
+sub connect {
+    my ($self, $host, $port, $info, $pre) = @_;
+
+    if (defined $info) {
+	$self->{register_cb_guard} = $self->reg_cb (
+	    ext_before_connect => sub {
+		my ($self, $err) = @_;
+
+		unless ($err) {
+              $self->register(
+		  $info->{nick}, $info->{user}, $info->{real}, $info->{password}
+		  );
+		}
+
+		delete $self->{register_cb_guard};
+	    }
+	    );
+    }
+  
+    AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
+}
+
+1;
