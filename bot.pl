@@ -3,24 +3,24 @@
 use strict;
 use warnings;
 
-#use Config::JFDI;
 use Config::Any;
 use Carp::Always;
 use Data::Dump qw/ddx/;
 
 use 5.01;
+use utf8;
 use Data::Dumper;
 use AnyEvent::IRC::Client;
 use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
 use lib 'lib';
-
 use Shittybot::TCL;
 
 my $config_stem = 'shittybot';
 
 ## anyevent stuff
 my $cond = AnyEvent->condvar;
+
 ## config
 my $config = Config::Any->load_stems({
     use_ext => 1,
@@ -47,16 +47,25 @@ sub make_client {
 
     my $client = new AnyEvent::IRC::Client;
 
-    my $botnick = $conf->{nickname};
-    my $channels = $conf->{channels};
-    $channels = [$channels] unless ref $channels;
-    my $botreal = $conf->{realname};
-    my $botident = $conf->{username};
-    my $botserver = $conf->{address};
-    my $nickservpw = undef;
+    # config
+    my $botnick    = $conf->{nickname};
+    my $channels   = $conf->{channels};
+    my $botreal    = $conf->{realname};
+    my $botident   = $conf->{username};
+    my $botserver  = $conf->{address};
+    my $operuser   = $conf->{operuser};
+    my $operpass   = $conf->{operpass};
+    my $nickserv   = $conf->{nickserv} || 'NickServ';
+    my $nickservpw = $conf->{nickpass};
     my $state_directory = $conf->{state_directory};
 
+    # force array
+    $channels      = [$channels] unless ref $channels;
+
+    # closures to be defined
     my $init;
+    my $getNick;
+
     my %states;
 
     if (!$states{$state_directory}) {
@@ -66,7 +75,15 @@ sub make_client {
         print "Spawned TCL master for state $state_directory\n";
     }
 
-## callbacks
+    ## getting it's nick back
+    $getNick = sub {
+        my $nick = shift;
+        # change your nick here
+        $client->send_srv('PRIVMSG' => $nickserv, "ghost $nick $nickservpw") if defined $nickservpw;
+        $client->send_srv('NICK', $nick);
+    };
+
+    ## callbacks
     my $conn = sub {
         my ($client, $err) = @_;
         return unless $err;
@@ -75,13 +92,28 @@ sub make_client {
     };
 
     $client->reg_cb(connect => $conn);
-    $client->reg_cb
-        (registered => sub {
+    $client->reg_cb(
+        registered => sub {
             my $self = shift;
             say "Registered on IRC server";
             $client->enable_ping(60);
+
+            # oper up
+            if ($operuser && $operpass) {
+                $client->send_srv(OPER => $operuser, $operpass);
+            }
+
+            # save timer
+            $client->{_nickTimer} = AnyEvent->timer(
+                after => 10,
+                interval => 30, # NICK RECOVERY INTERVAL
+                cb => sub {
+                    $getNick->($botnick) unless $client->is_my_nick($botnick);
+                },
+            );
          },
          disconnect => sub {
+             delete $client->{_nickTimer};
              say "disconnected: $_[1]! trying to reconnect...";
              $init->();
          },
@@ -101,13 +133,13 @@ sub make_client {
              my ($self, $old_nick, $new_nick, $is_myself) = @_;
              return unless $is_myself;
              return if $new_nick eq $botnick;
-             getNick->($botnick);
+             $getNick->($botnick);
          });
 
 
     $client->ctcp_auto_reply ('VERSION', ['VERSION', 'Smeggdrop']);
 
-# default crap
+    # default crap
     $client->reg_cb
         (debug_recv =>
          sub {
@@ -118,25 +150,7 @@ sub make_client {
              }
          });
 
-## getting it's nick back
-
-
-    my $getNick = sub {
-        my $nick = shift;
-        # change your nick here
-        $client->send_srv('PRIVMSG' => "NickServ", "ghost $nick $nickservpw") if defined $nickservpw;
-        $client->send_srv('NICK', $nick);
-    };
-
-    my $nickTimer = AnyEvent->timer (after => 10, interval => 30, # NICK RECOVERY INTERVAL
-                                     cb =>
-                                     sub {
-                                         $getNick->($botnick) unless $client->is_my_nick($botnick);
-                                     });
-
-
-## example of parsing
-
+    ## example of parsing
     my $trigger = $conf->{trigger};
 
     my $parse_privmsg = sub {
@@ -144,7 +158,7 @@ sub make_client {
 
         my $chan = $msg->{params}->[0];
         my $from = $msg->{prefix};
-        #print Dump($msg);
+
         if ($msg->{params}->[-1] =~ m/^!lol (.*)/) {
             $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION lol @ $1"); # <--- action here
         }
@@ -162,11 +176,10 @@ sub make_client {
         }
     };
 
-
     $client->reg_cb(irc_privmsg => $parse_privmsg);
 
     $init = sub {
-        $client->send_srv('PRIVMSG' => "NickServ", "identify $nickservpw") if defined $nickservpw;
+        $client->send_srv('PRIVMSG' => $nickserv, "identify $nickservpw") if defined $nickservpw;
         $client->connect (
             $botserver, 6667, { nick => $botnick, user => $botident, real => $botreal }
         );
@@ -177,19 +190,15 @@ sub make_client {
             print "Joining $chan\n";
 
             $client->send_srv('JOIN', $chan);
-            $client->clear_chan_queue($chan); # ..You may wanted to
-            # join #bla and the
-            # server redirects that
-            # and sends you that you
-            # joined #blubb. You may
-            # use clear_chan_queue to
-            # remove the queue after
-            # some timeout after
-            # joining, so that you
-            # don't end up with a
-            # memory leak.
 
-            $client->send_chan($chan, 'PRIVMSG', $chan, 'hy');
+            # ..You may have wanted to join #bla and the server
+            # redirects that and sends you that you joined #blubb. You
+            # may use clear_chan_queue to remove the queue after some
+            # timeout after joining, so that you don't end up with a
+            # memory leak.
+            $client->clear_chan_queue($chan); 
+
+            #$client->send_chan($chan, 'PRIVMSG', $chan, 'hy');
             #  $client->send_chan($botchan, 'NOTICE', $botchan, 'notice lol');
         }
     };
@@ -198,13 +207,13 @@ sub make_client {
 }
 
 sub chunkby {
-        my ($a,$len) = @_;
-        my @out = ();
-        while (length($a) > $len) {
-                push @out,substr($a,0,$len);
-                $a = substr($a,$len);
-        }
-        push @out, $a if ($a);
-        return @out;
+    my ($a,$len) = @_;
+    my @out = ();
+    while (length($a) > $len) {
+        push @out,substr($a,0,$len);
+        $a = substr($a,$len);
+    }
+    push @out, $a if ($a);
+    return @out;
 }
 
