@@ -12,7 +12,7 @@ Requirements:
   - Time::Out
   - Carp::Always
   - Data::Dump
-  - Config::General
+  - Config::Any
 - Tcl 8.4
   - tcllib
   - tclcurl

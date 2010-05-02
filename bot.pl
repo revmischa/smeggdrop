@@ -217,9 +217,7 @@ sub make_client {
         );
 
         foreach my $chan (@$channels) {
-            $chan = '#' . $chan;
-
-            print "Joining $chan\n";
+            say "Joining $chan";
 
             $client->send_srv('JOIN', $chan);
 
