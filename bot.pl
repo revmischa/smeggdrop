@@ -139,7 +139,7 @@ sub make_client {
                 },
             );
          },
-         kick => sub {
+         join => sub {
              my ($self, $nick, $channel, $is_myself) = @_;
              return unless $is_myself;
 
