@@ -1,0 +1,32 @@
+---
+networks:
+    hardchats:
+        address: localhost
+        nickname: montel
+        username: montel
+        realname: Montel Deonte Edwards
+
+        nickserv: NickServ
+        nickpass: nickpass
+
+        operuser: operman
+        operpass: operpw
+
+        state_directory: state-hardchats/
+        trigger: '^tcl\s'
+
+        channels:
+            - penni
+            - dildo
+
+    buttes:
+        address: irc.buttes.org
+        nickname: montel
+        username: montel
+        realname: Montel Deonte Edwards
+
+        state_directory: state-hardchats/
+        trigger: '^tcl\s'
+
+        channels:
+            - shittybot

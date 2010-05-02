@@ -2,10 +2,11 @@
 
 use strict;
 use warnings;
-use Config::General;
-use Carp::Always;
-use Data::Dump  qw/ddx/;
 
+#use Config::JFDI;
+use Config::Any;
+use Carp::Always;
+use Data::Dump qw/ddx/;
 
 use 5.01;
 use Data::Dumper;
@@ -16,18 +17,23 @@ use lib 'lib';
 
 use Shittybot::TCL;
 
+my $config_stem = 'shittybot';
 
 ## anyevent stuff
 my $cond = AnyEvent->condvar;
+## config
+my $config = Config::Any->load_stems({
+    use_ext => 1,
+    stems => [ $config_stem ],
+})->[0] or die "Failed to read config file";
 
+foreach my $config_file (values %{$config}) {
+    my $networks = $config_file->{networks};
+    die "Unable to find network configuration" unless $networks;
 
-## settings:
-my $config = Config::General->new("bot.conf") or die "Failed to read config file";
-my %configuration = $config->getall or die "Failed to parse configuration file";
-
-my @networks = values %{$configuration{Server}};
-foreach my $network (@networks) {
-    make_client($network);
+    while (my ($net, $net_conf) = each %$networks) {
+        make_client($net_conf);
+    }
 }
 
 $cond->wait;
@@ -42,20 +48,22 @@ sub make_client {
     my $client = new AnyEvent::IRC::Client;
 
     my $botnick = $conf->{nickname};
-    my $botchan = '#shittybot'; #.$conf->{Channels}->{default}; <-- this is not working for some reason :(
+    my $channels = $conf->{channels};
+    $channels = [$channels] unless ref $channels;
     my $botreal = $conf->{realname};
     my $botident = $conf->{username};
     my $botserver = $conf->{address};
     my $nickservpw = undef;
+    my $state_directory = $conf->{state_directory};
 
     my $init;
     my %states;
 
-    if (!$states{$conf->{state}}) {
-        my $tcl = Shittybot::TCL->spawn($conf->{state}, $client);
-        $states{$conf->{state}} = $tcl;
-        ddx($conf->{state} . " has a tcl set!");
-        print "Spawned TCL master for state $conf->{state}\n";
+    if (!$states{$state_directory}) {
+        my $tcl = Shittybot::TCL->spawn($state_directory, $client);
+        $states{$state_directory} = $tcl;
+        ddx($state_directory . " has a tcl set!");
+        print "Spawned TCL master for state $state_directory\n";
     }
 
 ## callbacks
@@ -149,7 +157,7 @@ sub make_client {
             my $nick = prefix_nick($from);
             my $mask = prefix_user($from)."@".prefix_host($from);
             say "Got trigger: [$trigger] $code";
-            my $out =  $states{$conf->{state}}->call($nick, $mask, '', $chan, $code);
+            my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
             $client->send_chan($chan, 'PRIVMSG', $chan, $_) foreach split '\n' => $out;
         }
     };
@@ -162,21 +170,28 @@ sub make_client {
         $client->connect (
             $botserver, 6667, { nick => $botnick, user => $botident, real => $botreal }
         );
-        $client->send_srv('JOIN', $botchan);
-        $client->clear_chan_queue($botchan); # ..You may wanted to
-                                             # join #bla and the
-                                             # server redirects that
-                                             # and sends you that you
-                                             # joined #blubb. You may
-                                             # use clear_chan_queue to
-                                             # remove the queue after
-                                             # some timeout after
-                                             # joining, so that you
-                                             # don't end up with a
-                                             # memory leak.
 
-        $client->send_chan($botchan, 'PRIVMSG', $botchan, 'hy');
-        #  $client->send_chan($botchan, 'NOTICE', $botchan, 'notice lol');
+        foreach my $chan (@$channels) {
+            $chan = '#' . $chan;
+
+            print "Joining $chan\n";
+
+            $client->send_srv('JOIN', $chan);
+            $client->clear_chan_queue($chan); # ..You may wanted to
+            # join #bla and the
+            # server redirects that
+            # and sends you that you
+            # joined #blubb. You may
+            # use clear_chan_queue to
+            # remove the queue after
+            # some timeout after
+            # joining, so that you
+            # don't end up with a
+            # memory leak.
+
+            $client->send_chan($chan, 'PRIVMSG', $chan, 'hy');
+            #  $client->send_chan($botchan, 'NOTICE', $botchan, 'notice lol');
+        }
     };
 
     $init->();

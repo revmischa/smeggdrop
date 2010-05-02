@@ -2,23 +2,23 @@ Shittybot
 =========
 A fork of Sam Stephenson's excellent smeggdrop.
 No longer requires eggdrop
+This fork uses AnyEvent, POE is on the outs.
 
 Requirements:
 - Perl
-  - POE::Component::IRC::State
+  - AnyEvent::IRC::Client
   - Tcl
   - Moose
   - Time::Out
   - Carp::Always
   - Data::Dump
   - Config::General
-  - POE::Component::SSLify - if you want SSL
 - Tcl 8.4
   - tcllib
-  - TclCurl
+  - tclcurl
+  - tclx
 - Git
 
-Installation:
-- Check out
-- Edit bot.conf
-- Run 'run-bot'
+Quickstart:
+- Edit shittybot.yml
+- Run './run-bot'
