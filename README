@@ -13,6 +13,9 @@ Requirements:
   - Carp::Always
   - Data::Dump
   - Config::General
+  - YAML::XS (preferable)
+  - parent
+
 - Tcl 8.4
   - tcllib
   - tclcurl
