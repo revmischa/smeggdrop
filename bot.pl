@@ -263,6 +263,18 @@ sub make_client {
 }
 
 
+sub chunkby {
+        my ($a,$len) = @_;
+        my @out = ();
+        while (length($a) > $len) {
+                push @out,substr($a,0,$len);
+                $a = substr($a,$len);
+        }
+        push @out, $a if ($a);
+        return @out;
+}
+
+
 # overload the IRC::Client connect method to let us defined a prebinding callback
 package AnyEvent::IRC::Client::Pre;
 
@@ -294,16 +306,5 @@ sub connect {
     AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
 }
 
-
-sub chunkby {
-        my ($a,$len) = @_;
-        my @out = ();
-        while (length($a) > $len) {
-                push @out,substr($a,0,$len);
-                $a = substr($a,$len);
-        }
-        push @out, $a if ($a);
-        return @out;
-}
 
 1;
