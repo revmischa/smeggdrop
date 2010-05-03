@@ -208,10 +208,19 @@ sub make_client {
             say "Got trigger: [$trigger] $code";
             my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
 
-	    foreach my $l (split "\n", $out) {
-		utf8::encode($l);
-		$client->send_chan($chan, 'PRIVMSG', $chan, $l);
+	    $out =~ s/\001ACTION /\0777ACTION /g;
+	    $out =~ s/[\000-\001]/ /g;
+	    $out =~ s/\0777ACTION /\001ACTION /g;
+	    my @lines = split( /\n/, $out);
+	    my $limit = $conf->{linelimit} || 20;
+	    # split lines if they are too long
+	    @lines = map { utf8::encode(chunkby($_, 420)) } @lines;
+	    if (@lines > $limit) {
+	      my $n = @lines;
+	      @lines = @lines[0..($limit-1)];
+	      push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
 	    }
+	    $client->send_chan($chan, 'PRIVMSG', $chan, $_) foreach @lines;
         }
     };
 
@@ -283,6 +292,18 @@ sub connect {
     }
 
     AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
+}
+
+
+sub chunkby {
+        my ($a,$len) = @_;
+        my @out = ();
+        while (length($a) > $len) {
+                push @out,substr($a,0,$len);
+                $a = substr($a,$len);
+        }
+        push @out, $a if ($a);
+        return @out;
 }
 
 1;
