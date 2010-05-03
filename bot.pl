@@ -114,9 +114,15 @@ sub make_client {
                 },
             );
          },
+	notice => sub {
+	    my ($self, $line) = @_;
+	    say "NOTICE: $line";
+	},
          disconnect => sub {
+	     my ($self, $reason) = @_;
              delete $client->{_nickTimer};
-             say "disconnected: $_[1]! trying to reconnect...";
+             delete $client->{rejoins};
+             say "disconnected: $reason. trying to reconnect...";
              $init->();
          },
          part => sub {
