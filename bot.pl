@@ -201,6 +201,7 @@ sub make_client {
         # if ($msg->{params}->[-1] =~ m/^!whois$/) {
         #     say $client->send_msg('WHOIS', prefix_nick($from));
         # }
+	
         if ($msg->{params}->[-1] =~ qr/$trigger/) {
             my $code = $msg->{params}->[-1];
             $code =~ s/$trigger//;
@@ -208,28 +209,23 @@ sub make_client {
             my $mask = prefix_user($from)."@".prefix_host($from);
             say "Got trigger: [$trigger] $code";
             my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
+	    utf8::encode($out);
 
-
-	    # Malformed UTF-8 character (unexpected end of string) in substitution (s///) at /usr/share/perl/5.10/Carp/Heavy.pm line 101, <GEN0> line 3.
-	    #Malformed UTF-8 character (unexpected end of string) in length at /usr/share/perl/5.10/Carp/Heavy.pm line 256, <GEN0> line 3.
-	    # TODO: FIX THIS CRAP
-	     utf8::encode($out);
-	    # $out =~ s/\001ACTION /\0777ACTION /g;
-	    # $out =~ s/[\000-\001]/ /g;
-	    # $out =~ s/\0777ACTION /\001ACTION /g;
+	    $out =~ s/\001ACTION /\0777ACTION /g;
+	    $out =~ s/[\000-\001]/ /g;
+	    $out =~ s/\0777ACTION /\001ACTION /g;
 
 
 	    my @lines = split  "\n" => $out;
 	    my $limit = $conf->{linelimit} || 20;
 	    # split lines if they are too long
-	    #@lines = map { chunkby($_, 420) } @lines;
+	    @lines = map { chunkby($_, 420) } @lines;
 	    if (@lines > $limit) {
 	      my $n = @lines;
 	      @lines = @lines[0..($limit-1)];
 	      push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
 	    }
 	    foreach(@lines) {
-	      utf8::encode($_);
 	      $client->send_chan($chan, 'PRIVMSG', $chan, $_);
 	    }
 	  }
