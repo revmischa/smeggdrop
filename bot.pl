@@ -55,6 +55,7 @@ sub make_client {
     my $botreal    = $conf->{realname};
     my $botident   = $conf->{username};
     my $botserver  = $conf->{address};
+    my $botport    = $conf->{port} || 6667;
     my $operuser   = $conf->{operuser};
     my $operpass   = $conf->{operpass};
     my $nickserv   = $conf->{nickserv} || 'NickServ';
@@ -203,7 +204,7 @@ sub make_client {
     $init = sub {
         $client->send_srv('PRIVMSG' => $nickserv, "identify $nickservpw") if defined $nickservpw;
         $client->connect (
-            $botserver, 6667, { nick => $botnick, user => $botident, real => $botreal },
+            $botserver, $botport, { nick => $botnick, user => $botident, real => $botreal },
 	    sub {
 		my ($fh) = @_;
 
@@ -264,7 +265,7 @@ sub connect {
 	    }
 	    );
     }
-  
+
     AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
 }
 

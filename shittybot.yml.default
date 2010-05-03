@@ -2,6 +2,7 @@
 networks:
     hardchats:
         address: localhost
+	port: 6696
         nickname: montel
         username: montel
         realname: Montel Deonte Edwards
