@@ -5,7 +5,7 @@ use warnings;
 
 use Config::Any;
 use Carp::Always;
-use Data::Dump qw/ddx/;
+use Data::Dump qw/ddx dump/;
 
 use 5.01;
 use utf8;
@@ -179,6 +179,7 @@ sub make_client {
         (debug_recv =>
          sub {
              my ($self, $ircmsg) = @_;
+	     return unless $ircmsg->{command};
              #say dump($ircmsg);
              if ($ircmsg->{command} eq '307') { # is a registred nick reply
                  # do something
@@ -194,12 +195,12 @@ sub make_client {
         my $chan = $msg->{params}->[0];
         my $from = $msg->{prefix};
 
-        if ($msg->{params}->[-1] =~ m/^!lol (.*)/) {
-            $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION lol @ $1"); # <--- action here
-        }
-        if ($msg->{params}->[-1] =~ m/^!whois$/) {
-            say $client->send_msg('WHOIS', prefix_nick($from));
-        }
+        # if ($msg->{params}->[-1] =~ m/^!lol (.*)/) {
+        #     $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION lol @ $1"); # <--- action here
+        # }
+        # if ($msg->{params}->[-1] =~ m/^!whois$/) {
+        #     say $client->send_msg('WHOIS', prefix_nick($from));
+        # }
         if ($msg->{params}->[-1] =~ qr/$trigger/) {
             my $code = $msg->{params}->[-1];
             $code =~ s/$trigger//;
@@ -208,20 +209,30 @@ sub make_client {
             say "Got trigger: [$trigger] $code";
             my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
 
-	    $out =~ s/\001ACTION /\0777ACTION /g;
-	    $out =~ s/[\000-\001]/ /g;
-	    $out =~ s/\0777ACTION /\001ACTION /g;
-	    my @lines = split( /\n/, $out);
+
+	    # Malformed UTF-8 character (unexpected end of string) in substitution (s///) at /usr/share/perl/5.10/Carp/Heavy.pm line 101, <GEN0> line 3.
+	    #Malformed UTF-8 character (unexpected end of string) in length at /usr/share/perl/5.10/Carp/Heavy.pm line 256, <GEN0> line 3.
+	    # TODO: FIX THIS CRAP
+	     utf8::encode($out);
+	    # $out =~ s/\001ACTION /\0777ACTION /g;
+	    # $out =~ s/[\000-\001]/ /g;
+	    # $out =~ s/\0777ACTION /\001ACTION /g;
+
+
+	    my @lines = split  "\n" => $out;
 	    my $limit = $conf->{linelimit} || 20;
 	    # split lines if they are too long
-	    @lines = map { utf8::encode(chunkby($_, 420)) } @lines;
+	    #@lines = map { chunkby($_, 420) } @lines;
 	    if (@lines > $limit) {
 	      my $n = @lines;
 	      @lines = @lines[0..($limit-1)];
 	      push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
 	    }
-	    $client->send_chan($chan, 'PRIVMSG', $chan, $_) foreach @lines;
-        }
+	    foreach(@lines) {
+	      utf8::encode($_);
+	      $client->send_chan($chan, 'PRIVMSG', $chan, $_);
+	    }
+	  }
     };
 
     $client->reg_cb(irc_privmsg => $parse_privmsg);
