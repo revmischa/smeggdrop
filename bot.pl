@@ -99,6 +99,7 @@ sub make_client {
         registered => sub {
             my $self = shift;
             say "Registered on IRC server";
+	    delete $client->{reconnects}{$botserver};
             $client->enable_ping(60);
 
             # oper up
@@ -118,7 +119,15 @@ sub make_client {
          disconnect => sub {
              delete $client->{_nickTimer};
              say "disconnected: $_[1]! trying to reconnect...";
-             $init->();
+ 
+	     #keep reconecting
+	     $client->{reconnects}{$botserver} = AnyEvent->timer(
+                after => 10,
+                interval => 30,
+                cb => sub {
+		    $init->();
+                },
+            );
          },
          part => sub {
              my ($self, $nick, $channel, $is_myself, $msg) = @_;
@@ -212,7 +221,7 @@ sub make_client {
 		    my $bind = AnyEvent::Socket::pack_sockaddr(undef, parse_address($bindip));
 		    bind $fh, $bind;
 		}
-        
+
 		return 30;
 	    },
         );
