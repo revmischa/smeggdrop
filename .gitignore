@@ -1,5 +1,2 @@
-.DS_Store
-*.swp
-/state-*
-/bot.conf
-*~
+shittybot.yml
+state*

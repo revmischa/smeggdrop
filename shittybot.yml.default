@@ -2,9 +2,11 @@
 networks:
     hardchats:
         address: localhost
+	port: 6696
         nickname: montel
         username: montel
         realname: Montel Deonte Edwards
+
 
         nickserv: NickServ
         nickpass: nickpass
@@ -18,6 +20,9 @@ networks:
         channels:
             - '#penni'
             - '#dildo'
+
+
+	linelimit: 100
 
     buttes:
         address: irc.buttes.org
