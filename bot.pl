@@ -91,7 +91,14 @@ sub make_client {
         my ($client, $err) = @_;
         return unless $err;
         say "Can't connect: $err";
-        my $init_timer = AnyEvent->timer(after => 5, cb => sub { $init->() })
+	#keep reconecting
+	$client->{reconnects}{$botserver} = AnyEvent->timer(
+		  after => 1,
+		  interval => 10,
+		  cb => sub {
+		     $init->();
+		   },
+            );
     };
 
     $client->reg_cb(connect => $conn);
@@ -122,8 +129,8 @@ sub make_client {
  
 	     #keep reconecting
 	     $client->{reconnects}{$botserver} = AnyEvent->timer(
-                after => 10,
-                interval => 30,
+                after => 1,
+                interval => 10,
                 cb => sub {
 		    $init->();
                 },
