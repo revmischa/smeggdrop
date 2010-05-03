@@ -16,6 +16,8 @@ use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
 use lib 'lib';
 use Shittybot::TCL;
+binmode STDOUT, ":utf8";
+
 
 my $config_stem = 'shittybot';
 
