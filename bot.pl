@@ -223,7 +223,6 @@ sub make_client {
 	    $out =~ s/[\000-\001]/ /g;
 	    $out =~ s/\0777ACTION /\001ACTION /g;
 
-
 	    my @lines = split  "\n" => $out;
 	    my $limit = $conf->{linelimit} || 20;
 	    # split lines if they are too long
@@ -282,10 +281,10 @@ sub chunkby {
         my ($a,$len) = @_;
         my @out = ();
         while (length($a) > $len) {
-                push @out,substr($a,0,$len);
+                push @out,substr($a, 0, $len);
                 $a = substr($a,$len);
         }
-        push @out, $a if ($a);
+        push @out, $a if (defined $a);
         return @out;
 }
 
