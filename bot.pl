@@ -17,7 +17,7 @@ use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 use lib 'lib';
 use Shittybot::TCL;
 use Shittybot::Auth;
-binmode STDOUT, ":ut{f8";
+binmode STDOUT, ":utf8";
 
 
 my $config_stem = 'shittybot';
@@ -68,7 +68,8 @@ sub make_client {
     $client->{auth} = new Shittybot::Auth
       ('ownernick' => $conf->{ownername},
        'ownerpass' => $conf->{ownerpass},
-       'sessionttl' => $conf->{sessionttl}
+       'sessionttl' => $conf->{sessionttl},
+#       'client' => $client,
       );
 
 
@@ -219,10 +220,9 @@ sub make_client {
 	if ($msg->{params}->[-1] =~ qr/^admin\s/) {
 	  my $data = $msg->{params}->[-1];
 	  $data =~ s/^admin\s//;
-	  $client->{auth}->from($from);
-	  my $out = $client->{auth}->Command($data);
-	  $client->send_srv('PRIVMSG', prefix_nick($from), $out);
-	  ddx $msg->{params};
+	  #$client->{auth}->from($from);
+	  my @out = $client->{auth}->Command($from, $data);
+	  $client->send_srv(@out);
 	}
 
         if ($msg->{params}->[-1] =~ qr/$trigger/) {
