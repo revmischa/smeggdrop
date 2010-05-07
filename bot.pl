@@ -219,7 +219,10 @@ sub make_client {
 	if ($msg->{params}->[-1] =~ qr/^admin\s/) {
 	  my $data = $msg->{params}->[-1];
 	  $data =~ s/^admin\s//;
-	  $client->{auth}->Command($data);
+	  $client->{auth}->from($from);
+	  my $out = $client->{auth}->Command($data);
+	  $client->send_srv('PRIVMSG', prefix_nick($from), $out);
+	  ddx $msg->{params};
 	}
 
         if ($msg->{params}->[-1] =~ qr/$trigger/) {
