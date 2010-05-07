@@ -65,7 +65,8 @@ sub make_client {
     my $state_directory = $conf->{state_directory};
 
     # force array
-    $channels      = [$channels] unless ref $channels;
+    next unless $channels;
+    $channels = [$channels] unless ref $channels;
 
     # closures to be defined
     my $init;
@@ -125,9 +126,13 @@ sub make_client {
                 },
             );
          },
-	notice => sub {
-	    my ($self, $line) = @_;
-	    say "NOTICE: $line";
+	ctcp => sub {
+	    my ($self, $src, $target, $tag, $msg, $type) = @_;
+	    say "$type $tag from $src to $target: $msg";
+	},
+	error => sub {
+	    my ($self, $code, $msg, $ircmsg) = @_;
+	    print STDERR "ERROR: $msg " . dump($ircmsg) . "\n";
 	},
          disconnect => sub {
 	     my ($self, $reason) = @_;
@@ -137,7 +142,7 @@ sub make_client {
  
 	     #keep reconecting
 	     $client->{reconnects}{$botserver} = AnyEvent->timer(
-                after => 1,
+                after => 10,
                 interval => 10,
                 cb => sub {
 		    $init->();
@@ -258,6 +263,8 @@ sub make_client {
         );
 
         foreach my $chan (@$channels) {
+	    next unless $chan;
+
             say "Joining $chan";
 
             $client->send_srv('JOIN', $chan);
