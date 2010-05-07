@@ -18,7 +18,9 @@ Requirements:
   - Config::General
   - YAML::XS (preferable)
   - parent
+  - Net::SCP::Expect
 - Tcl 8.4
+  - -dev package
   - tcllib
   - tclcurl
   - tclx
