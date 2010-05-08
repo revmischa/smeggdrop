@@ -211,7 +211,8 @@ sub make_client {
         my $chan = $msg->{params}->[0];
         my $from = $msg->{prefix};
 
-	return if (grep { $from =~ m/$_/ } @{$client->{auth}->ignorelist});
+	#return if (grep { $from =~ qr/^$_/ } @{$client->{auth}->ignorelist});
+	return if (grep { $from =~ qr/$_/ } @{$client->{auth}->ignorelist});
 
         # if ($msg->{params}->[-1] =~ m/^!lol (.*)/) {
         #     $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION lol @ $1"); # <--- action here

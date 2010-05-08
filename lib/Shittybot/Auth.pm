@@ -63,9 +63,22 @@ sub parse_command {
     when("kick") {
       return ("KICK", @args);
     }
-    when("ignore") { #ban people from using the bot
-      push @{ $self->ignorelist }, $args[0];
-      return ("msg", "$args[0] added to ignore list");
+    when("ignore") { 
+      given($args[0]) {
+	when("add") { # ban people from using the bot
+	  #$args[1] =~ s/\./\\\./;
+	  #$args[1] =~ s///;
+	  push @{ $self->ignorelist }, $args[1];
+	  return ("msg", "$args[1] added to ignore list");
+	}
+	when("list") {
+	  return ("msg", join " ", @{ $self->ignorelist });
+	}
+	when("remove") { # unignore
+	  delete $self->ignorelist->[grep {$self->ignorelist->[$_] eq $args[1]} 0..$#{$self->ignorelist}];
+	  @{$self->ignorelist} = grep { defined $_ } @{$self->ignorelist};
+	}
+      }
     }
   }
 
