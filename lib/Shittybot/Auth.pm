@@ -75,8 +75,7 @@ sub parse_command {
 	  return ("msg", join " ", @{ $self->ignorelist });
 	}
 	when("remove") { # unignore
-	  delete $self->ignorelist->[grep {$self->ignorelist->[$_] eq $args[1]} 0..$#{$self->ignorelist}];
-	  @{$self->ignorelist} = grep { defined $_ } @{$self->ignorelist};
+	  @{$self->ignorelist} = grep { $_ ne $args[1] } @{$self->ignorelist};
 	}
       }
     }
