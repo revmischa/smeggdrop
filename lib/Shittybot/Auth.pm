@@ -11,7 +11,9 @@ use Data::Dump  qw/ddx/;
 has ownernick => (is => 'rw', isa => 'Str');
 has ownerpass => (is => 'rw', isa => 'Str');
 has sessionttl => (is => 'rw', isa => 'Int');
-#has from => (is => 'rw', isa => 'Str');
+
+has 'ignorelist' => (is => 'rw', isa => 'ArrayRef', default => sub { [] });
+
 
 sub Command {
   my ($self, $from, $data) = @_;
@@ -52,7 +54,7 @@ sub parse_command {
   my ($command, @args) = split ' ' => $data;
   given($command) {
     when("dump") {
-      ddx $self->{sessions};
+      ddx $self->ignorelist;
       return;
     }
     when("ping") {
@@ -60,6 +62,10 @@ sub parse_command {
     }
     when("kick") {
       return ("KICK", @args);
+    }
+    when("ignore") { #ban people from using the bot
+      push @{ $self->ignorelist }, $args[0];
+      return ("msg", "$args[0] added to ignore list");
     }
   }
 
