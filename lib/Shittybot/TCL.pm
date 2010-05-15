@@ -13,6 +13,7 @@ use Shittybot::TCL::ForkedTcl;
 use Tcl;
 use TclEscape;
 
+my $TCL;
 
 sub new {
   my $class = shift;
@@ -41,11 +42,13 @@ sub spawn {
 sub load_state {
   my $self      = shift;
   my $statepath = shift;
-  my $tcl = $self->create_tcl($statepath);
+
+  return $TCL if $TCL;
+  $TCL = $self->create_tcl($statepath);
 
   # dangerous call backs
   #$tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
-  return $tcl;
+  return $TCL;
 }
 
 sub create_tcl {
@@ -71,10 +74,10 @@ sub call {
   ($nick, $mask, $handle, $channel, $code) = map { tcl_escape($_) } ($nick, $mask, $handle, $channel, $code);
 
   my $tcl = $self->{tcl};
+
   my @nicks = keys %{$self->{irc}->channel_list($ochannel)};
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
-
 
   # update the chanlist
   my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");

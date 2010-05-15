@@ -3,7 +3,6 @@
 use strict;
 use warnings;
 
-use Config::Any;
 use Carp::Always;
 use Data::Dump qw/ddx dump/;
 
@@ -19,24 +18,23 @@ use Shittybot::TCL;
 binmode STDOUT, ":utf8";
 
 
-my $config_stem = 'shittybot';
 
-## anyevent stuff
+# this needs to be loaded after Tcl
+use Config::JFDI;
+
+## anyevent main CV
 my $cond = AnyEvent->condvar;
 
-## config
-my $config = Config::Any->load_stems({
-    use_ext => 1,
-    stems => [ $config_stem ],
-})->[0] or die "Failed to read config file";
+# load shittybot.yml/conf/ini/etc
+my $config_raw = Config::JFDI->new(name => 'shittybot');
+my $config = $config_raw->get;
 
-foreach my $config_file (values %{$config}) {
-    my $networks = $config_file->{networks};
-    die "Unable to find network configuration" unless $networks;
+my $networks = $config->{networks}
+    or die "Unable to find network configuration";
 
-    while (my ($net, $net_conf) = each %$networks) {
-        make_client($net_conf);
-    }
+# spawn client for each network
+while (my ($net, $net_conf) = each %$networks) {
+    make_client($net_conf);
 }
 
 $cond->wait;
@@ -44,11 +42,22 @@ $cond->wait;
 
 ###########
 
+sub spawn_tcl {
+    my ($client) = @_;
+
+    my $state_dir = $config->{state_directory};
+
+    my $tcl = Shittybot::TCL->spawn($state_dir, $client);
+    say "Spawned TCL interpreter for state $state_dir";
+
+    return $tcl;
+}
 
 sub make_client {
     my ($conf) = @_;
 
     my $client = new AnyEvent::IRC::Client::Pre;
+    $client->{_tcl} = spawn_tcl($client);
 
     # config
     my $botnick    = $conf->{nickname};
@@ -62,23 +71,16 @@ sub make_client {
     my $operpass   = $conf->{operpass};
     my $nickserv   = $conf->{nickserv} || 'NickServ';
     my $nickservpw = $conf->{nickpass};
-    my $state_directory = $conf->{state_directory};
 
     # force array
     $channels      = [$channels] unless ref $channels;
 
+    # save channel list for the interpreter
+    $client->{config_channel_list} = $channels;
+
     # closures to be defined
     my $init;
     my $getNick;
-
-    my %states;
-
-    if (!$states{$state_directory}) {
-        my $tcl = Shittybot::TCL->spawn($state_directory, $client);
-        $states{$state_directory} = $tcl;
-        ddx($state_directory . " has a tcl set!");
-        print "Spawned TCL master for state $state_directory\n";
-    }
 
     ## getting it's nick back
     $getNick = sub {
@@ -216,7 +218,7 @@ sub make_client {
             my $nick = prefix_nick($from);
             my $mask = prefix_user($from)."@".prefix_host($from);
             say "Got trigger: [$trigger] $code";
-            my $out =  $states{$state_directory}->call($nick, $mask, '', $chan, $code);
+            my $out =  $client->{_tcl}->call($nick, $mask, '', $chan, $code);
 	    utf8::encode($out);
 
 	    $out =~ s/\001ACTION /\0777ACTION /g;
