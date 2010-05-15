@@ -1,4 +1,7 @@
 ---
+
+state_directory: state-hardchats/
+
 networks:
     hardchats:
         address: localhost
@@ -14,7 +17,6 @@ networks:
         operuser: operman
         operpass: operpw
 
-        state_directory: state-hardchats/
         trigger: '^tcl\s'
 
         channels:
@@ -30,7 +32,6 @@ networks:
         username: montel
         realname: Montel Deonte Edwards
 
-        state_directory: state-hardchats/
         trigger: '^tcl\s'
 
         channels:
