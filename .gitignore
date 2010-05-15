@@ -1,3 +1,4 @@
 shittybot.yml
 state*
 smeggdrop.conf
+lib/Shittybot/Logger.pm

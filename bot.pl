@@ -15,6 +15,7 @@ use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 
 use lib 'lib';
 use Shittybot::TCL;
+use Shittybot::Auth;
 binmode STDOUT, ":utf8";
 
 
@@ -71,6 +72,14 @@ sub make_client {
     my $operpass   = $conf->{operpass};
     my $nickserv   = $conf->{nickserv} || 'NickServ';
     my $nickservpw = $conf->{nickpass};
+
+    $client->{auth} = new Shittybot::Auth
+      ('ownernick' => $conf->{ownername},
+       'ownerpass' => $conf->{ownerpass},
+       'sessionttl' => $conf->{sessionttl},
+#       'client' => $client,
+      );
+
 
     # force array
     next unless $channels;
@@ -201,7 +210,6 @@ sub make_client {
              }
          });
 
-    ## example of parsing
     my $trigger = $conf->{trigger};
 
     my $parse_privmsg = sub {
@@ -210,13 +218,23 @@ sub make_client {
         my $chan = $msg->{params}->[0];
         my $from = $msg->{prefix};
 
+	#return if (grep { $from =~ qr/^$_/ } @{$client->{auth}->ignorelist});
+	return if (grep { $from =~ qr/$_/ } @{$client->{auth}->ignorelist});
+
         # if ($msg->{params}->[-1] =~ m/^!lol (.*)/) {
         #     $client->send_chan($chan, 'PRIVMSG', $chan, "\001ACTION lol @ $1"); # <--- action here
         # }
         # if ($msg->{params}->[-1] =~ m/^!whois$/) {
         #     say $client->send_msg('WHOIS', prefix_nick($from));
         # }
-	
+	if ($msg->{params}->[-1] =~ qr/^admin\s/) {
+	  my $data = $msg->{params}->[-1];
+	  $data =~ s/^admin\s//;
+	  #$client->{auth}->from($from);
+	  my @out = $client->{auth}->Command($from, $data);
+	  $client->send_srv(@out);
+	}
+
         if ($msg->{params}->[-1] =~ qr/$trigger/) {
             my $code = $msg->{params}->[-1];
             $code =~ s/$trigger//;
