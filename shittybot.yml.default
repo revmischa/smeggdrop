@@ -17,6 +17,12 @@ networks:
         operuser: operman
         operpass: operpw
 
+        ownername: owner
+        ownerpass: pw
+        sessionttl: 120 # Session Time-To-Live
+                       # In seconds
+	
+
         trigger: '^tcl\s'
 
         channels:
