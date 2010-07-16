@@ -108,12 +108,18 @@ sub call {
 
   # update the log
   if (ref($loglines)) {
+      ddx("loglines! ".scalar(@$loglines));
       my $add_to_log = tcl_escape("cache put irc chanlist $chanlist");
-      my @log = map {
-          "pubm:smeggdrop_log_line $nick $mask $handle $channel $line";
+      my @cmds = map {
+          my ($time,$nick,$mask,$line) = @{$_};
+          $line = tcl_escape( $line );
+          my $cmd = "pubm:smeggdrop_log_line $nick $mask $handle $channel $line";
+          ddx($cmd);
+          $cmd
       } @$loglines;
-      my $logcmd = join(@log,$/);
-      $tcl->Eval("$logcmd");
+      my $logcmd = join($/, @cmds);
+      ddx($logcmd);
+      ddx($tcl->Eval($logcmd));
   }
   # update the chanlist
   my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");

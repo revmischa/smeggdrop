@@ -194,7 +194,7 @@ sub irc_public {
     $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for @lines;
     #$heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
   } else {
-    append_chat_lines( $heap, $channel, log_line($nick, $mask, $message) );
+    append_chat_line( $heap, $channel, log_line($nick, $mask, $message) );
   }
 }
 
