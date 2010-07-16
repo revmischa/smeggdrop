@@ -8,6 +8,7 @@ set smeggdrop_http_request_limit      25                    ;# Maximum number of
 set smeggdrop_http_post_limit         150000                ;# Maximum POST body size
 set smeggdrop_http_transfer_limit     150000                ;# Maximum GET response size
 set smeggdrop_http_time_limit         5000                  ;# Maximum execution time, in milliseconds
+set smeggdrop_log_max_lines           20                    ;# Maximum lines to record per channel
 
 #
 # Publish settings - comment these out if you don't want [publish]
