@@ -208,10 +208,10 @@ sub chunkby {
         my ($a,$len) = @_;
         my @out = ();
         while (length($a) > $len) {
-                push @out,substr($a,0,$len);
+                push @out,substr($a, 0, $len);
                 $a = substr($a,$len);
         }
-        push @out, $a if ($a);
+        push @out, $a if (defined $a);
         return @out;
 }
 
