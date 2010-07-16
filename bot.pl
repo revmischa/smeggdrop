@@ -54,6 +54,83 @@ sub spawn_tcl {
     return $tcl;
 }
 
+# log channel chat lines 
+sub append_chat_line {
+    my ( $heap, $channel, $line) = @_;
+    my $log = $heap->{irc_logs}->{$channel} || [];
+    push @$log, $line;
+    $heap->{irc_logs}->{$channel} = $log;
+    return $log;
+}
+
+# retrieve channel log chat lines (as an array ref)
+sub get_chat_lines {
+    my ( $heap, $channel ) = @_;
+    my $log = $heap->{irc_logs}->{$channel} || [];
+    return $log;
+}
+
+# clear channel chat lines
+# mutation
+sub clear_chat_lines {
+    my ($heap, $channel) = @_;
+    $heap->{irc_logs}->{$channel} = [];
+}
+# retrieve and clear channel chat lines (as an array ref)
+# mutation
+sub slurp_chat_lines {
+    my ($heap, $channel) = @_;
+    my $log = get_chat_lines( $heap, $channel );
+    clear_chat_lines( $heap, $channel );
+    return $log;
+}
+# This is a data structure that is a chat long message
+sub log_line {
+    my ($nick, $mask, $message) = @_;
+    return [ time(), $nick, $mask, $message ];
+}
+
+sub irc_public {
+  my ($kernel,$heap,$who,$channels,$message)  = @_[KERNEL,HEAP,ARG0 .. ARG2];
+
+  my $nick  = ($who =~ /^([^!]+)/)[0];
+  my $mask  = $who;
+  $mask     =~ s/^[^!]+!//;
+  my $channel = ${$channels}[0];
+
+  my $trigger = $heap->{conf}->{trigger};
+  print STDERR "got message: $message\n";
+  if ($message  =~ qr/$trigger/) {
+    print "Got trigger $message\n";
+    my $code  = $message;
+    $code     =~ s/$trigger//;
+
+    #my $nick  = ($who =~ /^([^!]+)/)[0];
+    #my $mask  = $who;
+    #$mask     =~ s/^[^!]+!//;
+    #my $channel = ${$channels}[0];
+    my $loglines = slurp_chat_lines( $heap, $channel );
+    my $out   = $heap->{tcl}->call($nick,$mask,'',$channel,$code, $loglines);
+    
+    $out =~ s/\001ACTION /\0777ACTION /g;
+    $out =~ s/[\000-\001]/ /g;
+    $out =~ s/\0777ACTION /\001ACTION /g;
+    my @lines = split( /\n/, $out);
+    my $limit = $heap->{conf}->{linelimit} || 20;
+    # split lines if they are too long
+    @lines = map { chunkby($_, 420) } @lines;
+    if (@lines > $limit) {
+        my $n = @lines; 
+        @lines = @lines[0..($limit-1)];
+        push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
+    }
+    $heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for @lines;
+    #$heap->{irc}->yield(privmsg  => ${$channels}[0]  => $_) for (split (/\n/,$out));
+  } else {
+    append_chat_line( $heap, $channel, log_line($nick, $mask, $message) );
+  }
+}
+
 sub make_client {
     my ($conf) = @_;
 

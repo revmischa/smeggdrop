@@ -68,7 +68,8 @@ sub create_tcl {
 
 sub call {
   my $self  = shift;
-  my ($nick, $mask, $handle, $channel, $code) = @_;
+  my ($nick, $mask, $handle, $channel, $code, $loglines) = @_;
+
   my $ochannel = $channel;
   ddx(@_);
   ($nick, $mask, $handle, $channel, $code) = map { tcl_escape($_) } ($nick, $mask, $handle, $channel, $code);
@@ -79,9 +80,26 @@ sub call {
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
 
+  # update the log
+  if (ref($loglines)) {
+      #ddx("loglines! ".scalar(@$loglines));
+      my $add_to_log = tcl_escape("cache put irc chanlist $chanlist");
+      my @cmds = map {
+          my ($time,$nick,$mask,$line) = @{$_};
+          $line = tcl_escape( $line );
+          my $cmd = "pubm:smeggdrop_log_line $nick $mask $handle $channel $line";
+          #ddx($cmd);
+          $cmd
+      } @$loglines;
+      my $logcmd = join($/, @cmds);
+      #ddx($logcmd);
+      ddx($tcl->Eval($logcmd));
+  }
+
   # update the chanlist
   my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
   my $chancmd = "pub:tcl:perform $nick $mask $handle $channel $update_chanlist";
+
   # perform the actual command
   return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
 }
