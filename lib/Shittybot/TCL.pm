@@ -102,6 +102,7 @@ sub call {
 
   # perform the actual command
   return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
+#  return $tcl->Eval("pub:tcl:perform $nick $mask $handle $channel $code");
 }
 
 #not sure about this

@@ -6,6 +6,7 @@ use warnings;
 use Carp::Always;
 use Data::Dump qw/ddx dump/;
 
+use Encode;
 use 5.01;
 use utf8;
 use Data::Dumper;
@@ -230,18 +231,67 @@ sub make_client {
 	    return if grep { $from =~ qr/$_/ } @{$client->{auth}->ignorelist};
 	}
 
-	if ($msg->{params}->[-1] =~ qr/^admin\s/ && $client->{auth}) {
-	  my $data = $msg->{params}->[-1];
-	  $data =~ s/^admin\s//;
-	  #$client->{auth}->from($from);
-	  my @out = $client->{auth}->Command($from, $data);
-	  $client->send_srv(@out);
+	my $txt = $msg->{params}->[-1];
+
+	if ($txt =~ qr/^admin\s/ && $client->{auth}) {
+	    my $data = $txt;
+	    $data =~ s/^admin\s//;
+	    #$client->{auth}->from($from);
+	    my @out = $client->{auth}->Command($from, $data);
+	    $client->send_srv(@out);
 	}
 
-        if ($msg->{params}->[-1] =~ qr/$trigger/) {
-            my $code = $msg->{params}->[-1];
+        if ($txt =~ qr/$trigger/) {
+            my $code = $txt;
             $code =~ s/$trigger//;
             say "Got trigger: [$trigger] $code";
+
+	    # f u vxp
+	    return if $code =~ /foreach\s+proc/i;
+	    return if $code =~ /irc\.arabs\./i;
+	    return if $code =~ /foreach p \[info proc\]/i;
+	    return if $code =~ /foreach\s+var/i;
+	    return if $code =~ /proc \w+ \{\} \{\}/i;
+	    return if $code =~ /set \w+ \{\}/i;
+	    return if $code =~ /lopl/i;
+	    return if $from =~ /800A3C4E\.1B6ABF9\.8E35284E\.IP/;
+	    return if $from =~ /org\.org/;
+	    return if $from =~ /acidx.dj/;
+	    return if $from =~ /anonine.com/;
+	    return if $from =~ /maxchats\-afvhsk.ipv6.he.net/;
+
+	    return if $from =~ /dynamic.ip.windstream.net/;
+	    return if $from =~ /pig.aids/;
+	    return if $from =~ /blacktar/i;
+	    return if $from =~ /chatbuffet.net/;
+	    return if $from =~ /tptd/;
+	    return if $from =~ /andyskates/;
+	    return if $from =~ /oaks/;
+	    return if $from =~ /emad/;
+	    return if $from =~ /arabs.ps/;
+	    return if $from =~ /sf.gobanza.net/;
+	    return if $from =~ /4C42D300.C6D0F7BD.4CA38DE1.IP/;
+	    return if $from =~ /anal.beadgame.org/;
+	    return if $from =~ /CFD23648.ED246337.302A69E4.IP/;
+	    return if $from =~ /mc.videotron.ca/;
+	    return if $from =~ /^v\@/;
+	    return if $from =~ /xin\.lu/;
+	    return if $from =~ /\.ps$/;
+	    return if $from =~ /caresupply.info/;
+	    return if $from =~ /sttlwa.fios.verizon.net/;
+	    return if $from =~ /maxchats-m107ce.org/;
+	    return if $from =~ /bofh.im/;
+	    return if $from =~ /morb/;
+	    return if $from =~ /push\[RAX\]/;
+	    return if $from =~ /pushRAX/;
+	    return if $from =~ /maxchats-u5t042.mc.videotron.ca/;
+	    return if $from =~ /avas/i;
+	    return if $from =~ /avaz/i;
+	    return if $from =~ /zenwhen/i;
+	    return if $from =~ /pynchon/i;
+	    return if $from =~ /shaniqua/i;
+	    return if $from =~ /maxchats-3p5evi.bgk.bellsouth.net/;
+
 
 	    # add log info to interperter call
 	    my $loglines = $client->slurp_chat_lines($chan);
@@ -266,7 +316,8 @@ sub make_client {
 	      $client->send_chan($chan, 'PRIVMSG', $chan, $_);
 	    }
 	} else {
-	    $client->append_chat_line( $chan, $client->log_line($nick, $mask, $msg->{params}->[-1]) );
+	    $txt = Encode::decode( 'utf8', $txt );
+	    $client->append_chat_line( $chan, $client->log_line($nick, $mask, $txt) );
 	}
     };
 
