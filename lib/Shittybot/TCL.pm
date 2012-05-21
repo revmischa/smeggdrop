@@ -1,50 +1,49 @@
-#!/usr/bin/perl
 package Shittybot::TCL;
 
 use 5.01;
-use strict;
-use warnings;
+use Moose;
+
 use Data::Dump  qw/ddx/;
 use Data::Dumper qw(Dumper);
-#use Shittybot::TCL::Child;
 
 use Shittybot::TCL::ForkedTcl;
 
 use Tcl;
 use TclEscape;
 
+BEGIN {
+    with 'MooseX::Callbacks';
+    with 'MooseX::Traits';
+};
+
 my $TCL;
 
-sub new {
-  my $class = shift;
-  my $state = shift; #statepath!
-  my $irc   = shift;
+has 'state_path' => (
+    is => 'ro',
+    isa => 'Str',
+    required => 1,
+);
 
-  my $self = {};
-
-  $self->{state}  = $state;
-  $self->{irc}    = $irc;
-
-  bless ($self,$class); # this is bad
-  return $self;
-}
+has 'irc' => (
+    is => 'ro',
+    isa => 'Shittybot',
+    required => 1,
+);
 
 sub spawn {
-  my $class = shift;
-  my $state = shift;
-  my $irc   = shift;
-  my $self  = $class->new($state, $irc);
-  $self->{tcl}  = $self->load_state($self->{state});
-  return $self;
-}
+    my ($class, %opts) = @_;
 
+    my $self = $class->new_with_traits(%opts);
+    $self->{tcl} = $self->load_state;
+
+    return $self;
+}
 
 sub load_state {
   my $self      = shift;
-  my $statepath = shift;
 
   return $TCL if $TCL;
-  $TCL = $self->create_tcl($statepath);
+  $TCL = $self->create_tcl;
 
   # dangerous call backs
   #$tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
@@ -52,13 +51,15 @@ sub load_state {
 }
 
 sub create_tcl {
-  my ($self,$statepath) = @_;
+  my ($self) = @_;
+
+  my $state_path = $self->state_path;
   my $tcl = Tcl->new();
   $tcl->Init;
   #$tcl->Eval("proc putlog args {}");
   $tcl->CreateCommand('putlog',sub{ddx(@_)});
   $tcl->Eval("proc chanlist args { cache::get irc chanlist }");
-  $tcl->Eval("set smeggdrop_state_path $statepath");
+  $tcl->Eval("set smeggdrop_state_path $state_path");
   $tcl->EvalFile('smeggdrop.tcl');
   $tcl = Shittybot::TCL::ForkedTcl->new( interp => $tcl );
   $tcl->Init();
@@ -69,6 +70,14 @@ sub create_tcl {
 sub call {
   my $self  = shift;
   my ($nick, $mask, $handle, $channel, $code, $loglines) = @_;
+
+  # see if there is a native handler for this proc
+  my ($proc, $args) = split(/\s+/, $code, 2);
+  # builtin procs start with &
+  my ($builtin) = $proc =~ /^\s*\&(\w+)\b/;
+  if ($builtin) {
+      return if $self->dispatch($builtin, $self, $nick, $mask, $handle, $channel, $builtin, $args, $loglines);  # return if handled by builtin
+  }
 
   my $ochannel = $channel;
   ddx(@_);
@@ -110,4 +119,4 @@ sub tcl_escape {
     return TclEscape::escape($_[0]);
 }
 
-1;
+__PACKAGE__->meta->make_immutable;

@@ -14,6 +14,18 @@ has 'logs' => (
     default => sub { {} },
 );
 
+has 'config' => (
+    is => 'ro',
+    isa => 'HashRef',
+    required => 1,
+);
+
+has 'network_config' => (
+    is => 'ro',
+    isa => 'HashRef',
+    required => 1,
+);
+
 sub connect {
     my ($self, $host, $port, $info, $pre) = @_;
 
@@ -23,19 +35,18 @@ sub connect {
 		my ($self, $err) = @_;
 
 		unless ($err) {
-              $self->register(
-		  $info->{nick}, $info->{user}, $info->{real}, $info->{password}
-		  );
+		    $self->register(
+			$info->{nick}, $info->{user}, $info->{real}, $info->{password}
+		    );
 		}
 
 		delete $self->{register_cb_guard};
 	    }
-	    );
+	);
     }
 
     AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
 }
-
 
 # log channel chat lines 
 sub append_chat_line {
@@ -71,6 +82,44 @@ sub slurp_chat_lines {
 sub log_line {
     my ($self, $nick, $mask, $message) = @_;
     return [ time(), $nick, $mask, $message ];
+}
+
+sub send_to_channel {
+    my ($self, $chan, $msg) = @_;
+
+    return unless $msg;
+    utf8::encode($msg);
+
+    $msg =~ s/\001ACTION /\0777ACTION /g;
+    $msg =~ s/[\000-\001]/ /g;
+    $msg =~ s/\0777ACTION /\001ACTION /g;
+
+    my @lines = split  "\n" => $msg;
+    my $limit = $self->network_config->{linelimit} || 20;
+
+    # split lines if they are too long
+    @lines = map { chunkby($_, 420) } @lines;
+
+    if (@lines > $limit) {
+	my $n = @lines;
+	@lines = @lines[0..($limit-1)];
+	push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
+    }
+
+    foreach my $line (@lines) {
+	$self->send_chan($chan, 'PRIVMSG', $chan, $line);
+    }
+}
+
+sub chunkby {
+    my ($a,$len) = @_;
+    my @out = ();
+    while (length($a) > $len) {
+	push @out,substr($a, 0, $len);
+	$a = substr($a,$len);
+    }
+    push @out, $a if (defined $a);
+    return @out;
 }
 
 __PACKAGE__->meta->make_immutable(inline_constructor => 0);

@@ -49,47 +49,58 @@ sub spawn_tcl {
     my ($client) = @_;
 
     my $state_dir = $config->{state_directory};
+    my $traits = $config->{traits} || [];
 
-    my $tcl = Shittybot::TCL->spawn($state_dir, $client);
+    my @traits = map { "Shittybot::TCL::Trait::$_" } @$traits;
+
+    my $tcl = Shittybot::TCL->spawn(
+	state_path => $state_dir, 
+	irc => $client,
+	traits => \@traits,
+    );
     say "Spawned TCL interpreter for state $state_dir";
 
     return $tcl;
 }
 
 sub make_client {
-    my ($conf) = @_;
-
-    my $client = new Shittybot;
-    $client->{_tcl} = spawn_tcl($client);
+    my ($network_conf) = @_;
 
     # config
-    my $botnick    = $conf->{nickname};
-    my $bindip     = $conf->{bindip};
-    my $channels   = $conf->{channels};
-    my $botreal    = $conf->{realname};
-    my $botident   = $conf->{username};
-    my $botserver  = $conf->{address};
-    my $botport    = $conf->{port} || 6667;
-    my $operuser   = $conf->{operuser};
-    my $operpass   = $conf->{operpass};
-    my $nickserv   = $conf->{nickserv} || 'NickServ';
-    my $nickservpw = $conf->{nickpass};
+    my $botnick    = $network_conf->{nickname};
+    my $bindip     = $network_conf->{bindip};
+    my $channels   = $network_conf->{channels};
+    my $botreal    = $network_conf->{realname};
+    my $botident   = $network_conf->{username};
+    my $botserver  = $network_conf->{address};
+    my $botport    = $network_conf->{port} || 6667;
+    my $operuser   = $network_conf->{operuser};
+    my $operpass   = $network_conf->{operpass};
+    my $nickserv   = $network_conf->{nickserv} || 'NickServ';
+    my $nickservpw = $network_conf->{nickpass};
 
-    my $ownername  = $conf->{ownername};
-    my $ownerpass  = $conf->{ownerpass};
-    my $sessionttl = $conf->{sessionttl};
+    my $ownername  = $network_conf->{ownername};
+    my $ownerpass  = $network_conf->{ownerpass};
+    my $sessionttl = $network_conf->{sessionttl};
+
+    # validate config
+    return unless $channels;
+    $channels = [$channels] unless ref $channels;
+
+    # create client and interperter
+    my $client = Shittybot->new(
+	config => $config,
+	network_config => $network_conf,
+    );
+    $client->{_tcl} = spawn_tcl($client);
 
     if ($ownername && $ownerpass && $sessionttl) {
 	$client->{auth} = new Shittybot::Auth(
-	    'ownernick' => $conf->{ownername},
-	    'ownerpass' => $conf->{ownerpass},
-	    'sessionttl' => $conf->{sessionttl} || 0,
+	    'ownernick' => $network_conf->{ownername},
+	    'ownerpass' => $network_conf->{ownerpass},
+	    'sessionttl' => $network_conf->{sessionttl} || 0,
 	);
     }
-
-    # force array
-    next unless $channels;
-    $channels = [$channels] unless ref $channels;
 
     # save channel list for the interpreter
     $client->{config_channel_list} = $channels;
@@ -216,7 +227,7 @@ sub make_client {
              }
          });
 
-    my $trigger = $conf->{trigger};
+    my $trigger = $network_conf->{trigger};
 
     my $parse_privmsg = sub {
         my ($self, $msg) = @_;
@@ -250,6 +261,7 @@ sub make_client {
 	    return if $code =~ /foreach\s+proc/i;
 	    return if $code =~ /irc\.arabs\./i;
 	    return if $code =~ /foreach p \[info proc\]/i;
+	    return if $code =~ /foreach.+info\s+proc/i;
 	    return if $code =~ /foreach\s+var/i;
 	    return if $code =~ /proc \w+ \{\} \{\}/i;
 	    return if $code =~ /set \w+ \{\}/i;
@@ -259,16 +271,24 @@ sub make_client {
 	    return if $from =~ /acidx.dj/;
 	    return if $from =~ /anonine.com/;
 	    return if $from =~ /maxchats\-afvhsk.ipv6.he.net/;
-
+	    return if $from =~ /maxchats\-69a5t0.cust.bredbandsbolaget.se/;
 	    return if $from =~ /dynamic.ip.windstream.net/;
 	    return if $from =~ /pig.aids/;
+	    return if $from =~ /2607:9800:c100/;
+	    return if $from =~ /loller/;
 	    return if $from =~ /blacktar/i;
 	    return if $from =~ /chatbuffet.net/;
 	    return if $from =~ /tptd/;
+	    return if $from =~ /b0nk/;
+	    return if $from =~ /fullsail.com/;
+	    return if $from =~ /abrn/;
+	    return if $from =~ /bsb/;
+	    return if $from =~ /remembercaylee.org/;
 	    return if $from =~ /andyskates/;
 	    return if $from =~ /oaks/;
 	    return if $from =~ /emad/;
 	    return if $from =~ /arabs.ps/;
+	    return if $from =~ /guest/i;
 	    return if $from =~ /sf.gobanza.net/;
 	    return if $from =~ /4C42D300.C6D0F7BD.4CA38DE1.IP/;
 	    return if $from =~ /anal.beadgame.org/;
@@ -287,34 +307,34 @@ sub make_client {
 	    return if $from =~ /maxchats-u5t042.mc.videotron.ca/;
 	    return if $from =~ /avas/i;
 	    return if $from =~ /avaz/i;
+	    return if $from =~ /sloth/i;
+	    return if $from =~ /bzb/i;
+	    return if $from =~ /^X\b/;
 	    return if $from =~ /zenwhen/i;
+	    return if $from =~ /noah/i;
+	    return if $from =~ /maxchats\-87i1b6.com/i;
 	    return if $from =~ /pynchon/i;
 	    return if $from =~ /shaniqua/i;
+	    return if $from =~ /145\.98\.IP/i;
+	    return if $from =~ /devi/i;
+	    return if $from =~ /devio.us/i;
+	    return if $from =~ /silver/i;
+	    return if $from =~ /jbs/i;
+	    return if $from =~ /maxchats-m8r510.res.rr.com/i;
+	    return if $from =~ /sw0de/i;
+	    return if $from =~ /careking/i;
+	    return if $from =~ /114.31.211./i;
+	    return if $from =~ /rucas/i;
+	    return if $from =~ /ucantc.me/i;
+	    return if $from =~ /maxchats-ej6b15.2d1r.sjul.0470.2001\.IP/i;
+	    return if $from =~ /maxchats-2gn1sk\.us/i;
 	    return if $from =~ /maxchats-3p5evi.bgk.bellsouth.net/;
-
 
 	    # add log info to interperter call
 	    my $loglines = $client->slurp_chat_lines($chan);
             my $out = $client->{_tcl}->call($nick, $mask, '', $chan, $code, $loglines);
+	    $client->send_to_channel($chan, $out);
 
-	    utf8::encode($out);
-
-	    $out =~ s/\001ACTION /\0777ACTION /g;
-	    $out =~ s/[\000-\001]/ /g;
-	    $out =~ s/\0777ACTION /\001ACTION /g;
-
-	    my @lines = split  "\n" => $out;
-	    my $limit = $conf->{linelimit} || 20;
-	    # split lines if they are too long
-	    @lines = map { chunkby($_, 420) } @lines;
-	    if (@lines > $limit) {
-	      my $n = @lines;
-	      @lines = @lines[0..($limit-1)];
-	      push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
-	    }
-	    foreach(@lines) {
-	      $client->send_chan($chan, 'PRIVMSG', $chan, $_);
-	    }
 	} else {
 	    $txt = Encode::decode( 'utf8', $txt );
 	    $client->append_chat_line( $chan, $client->log_line($nick, $mask, $txt) );
@@ -359,18 +379,6 @@ sub make_client {
     };
 
     $init->();
-}
-
-
-sub chunkby {
-        my ($a,$len) = @_;
-        my @out = ();
-        while (length($a) > $len) {
-                push @out,substr($a, 0, $len);
-                $a = substr($a,$len);
-        }
-        push @out, $a if (defined $a);
-        return @out;
 }
 
 1;

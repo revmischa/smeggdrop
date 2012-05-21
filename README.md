@@ -11,6 +11,8 @@ Requirements:
   - AnyEvent::IRC::Client
   - Tcl
   - Moose
+  - MooseX::Callbacks
+  - MooseX::Traits
   - Time::Out
   - Carp::Always
   - Data::Dump
