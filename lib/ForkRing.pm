@@ -3,6 +3,8 @@ package ForkRing;
 # to a revolving door of potentially failing processes
 use Moose;
 
+our $DEBUG = 0;
+
 # code is the code that get passed to forkbabies
 has code        => ( is=>'rw', isa => 'CodeRef' );
 has currentBaby => ( is=>'rw', isa => 'ForkBaby' );
@@ -40,8 +42,7 @@ sub send {
     dwarn("[$$] Sending baby: [$msg] ".$baby->hasForked());
     return $baby->send($msg);
 }
-sub dwarn {}
-#sub dwarn {print join("\n", @_) . "\n"}
+sub dwarn { return unless $DEBUG; print join("\n", @_) . "\n"}
 1;
 package ForkBaby;
 #Fork Baby wraps underlying perl code
@@ -365,8 +366,7 @@ sub _parse_pid {
     my ($chars) = ($str =~ /NEW PID:\s+(\d+)$/);
     return $chars || 0;
 }
-#sub dwarn {print join("\n", @_) . "\n"}
-sub dwarn {}
+sub dwarn { return unless $DEBUG; print join("\n", @_) . "\n"}
 1;
 package TestForkRing;
 use strict;

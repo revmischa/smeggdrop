@@ -7,6 +7,7 @@ use Data::Dump  qw/ddx/;
 use Data::Dumper qw(Dumper);
 
 use Shittybot::TCL::ForkedTcl;
+use Shittybot::Command::Context;
 
 use Tcl;
 use TclEscape;
@@ -36,7 +37,7 @@ has 'tcl' => (
     is => 'ro',
     isa => 'Shittybot::TCL::ForkedTcl',
     lazy_build => 1,
-    handles => [qw/ export_to_tcl /],
+    handles => [qw/ export_to_tcl get_tcl_var /],
 );
 
 sub _build_tcl { 
@@ -163,14 +164,17 @@ sub load_index {
 }
 
 # eval a command in a forked process and print the result to irc
-sub perform {
-    my ($self, $nick, $mask, $handle, $channel, $code) = @_;
+sub call {
+    my ($self, $ctx) = @_;
+
+    my $channel = $ctx->channel;
+    my $nick = $ctx->nick;
 
     my $ok = 0;
     my $res;
     try {
 	# evals through ForkedTcl
-	$res = $self->tcl->Eval($code);
+	$res = $self->tcl->Eval($ctx);
 	$ok = 1;
     } catch {
 	my ($err) = @_;
@@ -186,19 +190,29 @@ sub perform {
     $self->irc->send_to_channel($channel, $res);
 }
 
-sub call {
-  my ($self, $nick, $mask, $handle, $channel, $code, $loglines) = @_;
+# deserialize context from interpreter vars
+sub context {
+    my ($self) = @_;
 
-  # update the chanlist
-  #my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
+    my @vars_to_import = qw/channel nick mask handle command/;
+    my %ctx;
+    foreach my $var (@vars_to_import) {
+	my $val = $self->get_tcl_var('context:' . $var);
+	$ctx{$var} = $val;
+    }
 
-  # perform the command
-  return $self->perform($nick, $mask, $handle, $channel, $code);
+    return Shittybot::Command::Context->new(%ctx);
 }
 
-#not sure about this
-sub tcl_escape {
-    return TclEscape::escape($_[0]);
+# say something in the current channel
+sub reply {
+    my ($self, @msg) = @_;
+
+    my $context = $self->context;
+    my $chan = $context->channel or die "Failed to find current context channel";
+    $self->irc->send_to_channel($chan => "@msg");
+
+    return;
 }
 
 __PACKAGE__->meta->make_immutable;

@@ -18,9 +18,8 @@ use lib 'lib';
 use Shittybot;
 use Shittybot::TCL;
 use Shittybot::Auth;
+use Shittybot::Command::Context;
 binmode STDOUT, ":utf8";
-
-
 
 # this needs to be loaded after Tcl
 use Config::JFDI;
@@ -41,7 +40,6 @@ while (my ($net, $net_conf) = each %$networks) {
 }
 
 $cond->wait;
-
 
 ###########
 
@@ -332,7 +330,14 @@ sub make_client {
 
 	    # add log info to interperter call
 	    my $loglines = $client->slurp_chat_lines($chan);
-            my $out = $client->{_tcl}->call($nick, $mask, '', $chan, $code, $loglines);
+	    my $cmd_ctx = Shittybot::Command::Context->new(
+		nick => $nick,
+		mask => $mask,
+		channel => $chan,
+		command => $code,
+		loglines => $loglines,
+	    );
+            my $out = $client->{_tcl}->call($cmd_ctx);
 	    $client->send_to_channel($chan, $out);
 
 	} else {

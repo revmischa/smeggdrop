@@ -2,12 +2,13 @@ package Shittybot::TCL::Trait::Twitter;
 
 use Moose::Role;
 
+use AnyEvent;
 use AnyEvent::Twitter;
 
 has 'twitter_client' => (
     is => 'ro',
     isa => 'AnyEvent::Twitter',
-    lazy_build => 1,
+    builder => '_build_twitter_client',
 );
 
 sub _build_twitter_client {
@@ -30,34 +31,33 @@ sub _build_twitter_client {
 after 'BUILD' => sub {
     my ($self) = @_;
 
-    my $testvar = "YO";
-
     $self->export_to_tcl(
 	namespace => 'twitter',
 	subs => {
-	    'post' => sub {
-		warn "post_twat: @_";
-	    },
-	},
-	vars => {
-	    'testvar' => \$testvar,
+	    'post' => sub { $self->post_to_twitter(@_) },
 	},
     );
 };
 
 sub post_to_twitter {
-    my ($self, $nick, $mask, $handle, $channel, $proc, $args, $loglines) = @_;
+    my ($self, @args) = @_;
 
-    my $twit = $self->twitter_client;
+    my $ctx = $self->context;
+    my $nick = $ctx->nick;
 
-    warn "$nick posting to twitter: '$args'\n";
+    my $post = "@args";
 
-    $twit->post('statuses/update', {
-	status => $args,
+    warn "$nick posting to twitter: '$post'\n";
+
+    $self->twitter_client->post('statuses/update', {
+	status => $post,
     }, sub {
 	my ($header, $response, $reason) = @_; 
-	$self->irc->send_to_channel($channel, "posted to twitter: $response/$reason");
+	
+	$self->reply("Posted to twitter: $reason");
     });
+    
+    return;
 }
 
 1;
