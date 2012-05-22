@@ -27,11 +27,21 @@ sub _build_twitter_client {
     return $client;
 }
 
-sub BUILD{}; after 'BUILD' => sub {
+after 'BUILD' => sub {
     my ($self) = @_;
 
-    $self->register_callbacks(
-	post_twat => \&post_to_twitter,
+    my $testvar = "YO";
+
+    $self->export_to_tcl(
+	namespace => 'twitter',
+	subs => {
+	    'post' => sub {
+		warn "post_twat: @_";
+	    },
+	},
+	vars => {
+	    'testvar' => \$testvar,
+	},
     );
 };
 

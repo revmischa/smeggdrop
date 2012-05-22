@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Carp::Always;
+#use Carp::Always;
 use Data::Dump qw/ddx dump/;
 
 use Encode;
@@ -53,7 +53,7 @@ sub spawn_tcl {
 
     my @traits = map { "Shittybot::TCL::Trait::$_" } @$traits;
 
-    my $tcl = Shittybot::TCL->spawn(
+    my $tcl = Shittybot::TCL->new_with_traits(
 	state_path => $state_dir, 
 	irc => $client,
 	traits => \@traits,

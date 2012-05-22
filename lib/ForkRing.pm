@@ -13,9 +13,10 @@ sub runTests {
 
 sub getNewBaby {
     my ($self) = @_;
-    my $sub = $self->code();
-    my $baby = ForkBaby->new(code => $sub);
-    $baby->forkit(); #start the baby!
+    dwarn("getNewBaby");
+    my $baby = ForkBaby->new(code => $self->code);
+    dwarn("forking...");
+    $baby->forkit; #start the baby!
     $self->currentBaby($baby);
     return $baby;
 }
@@ -40,6 +41,7 @@ sub send {
     return $baby->send($msg);
 }
 sub dwarn {}
+#sub dwarn {print join("\n", @_) . "\n"}
 1;
 package ForkBaby;
 #Fork Baby wraps underlying perl code
@@ -86,10 +88,11 @@ sub send {
     die "[$$] [send] Not a parent, not forked [$msg] [$hasForked] [$isParent]" unless ($hasForked && $isParent);
     die "Not a parent, not forked [$msg]" unless (my $child_pid = $self->isParent());
     #die "Command has a newline in it!" if ($msg =~ m#$/#); 
+    dwarn("Getting parent to child writer");
     my $writer = $self->fromParentToChild();
     dwarn("Writing to baby!");
     _writeMsg($writer, { type => "COMMAND", results => $msg });
-    # print $writer ($msg.$/);
+    #print $writer ($msg.$/);
     # assume writer is flushed..
     return $self->readResponse();
 }
@@ -101,6 +104,7 @@ sub childPid {
 
 sub forkit {
     my ($self) = @_;
+    dwarn("forkit");
     my $p2c = iopipe();
     my $c2p = iopipe();
     $self->fromChildToParent($c2p);
@@ -285,7 +289,9 @@ sub sendFailure {
 
 sub _readMsg {
     my ($reader) = @_;
+    dwarn("Starting _readMsg");
     my $name = <$reader>;
+    dwarn("Finished _readMsg");
     return undef unless defined $name;
     chomp($name);
     dwarn("Got name $name");
@@ -359,6 +365,7 @@ sub _parse_pid {
     my ($chars) = ($str =~ /NEW PID:\s+(\d+)$/);
     return $chars || 0;
 }
+#sub dwarn {print join("\n", @_) . "\n"}
 sub dwarn {}
 1;
 package TestForkRing;

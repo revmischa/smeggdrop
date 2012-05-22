@@ -10,13 +10,15 @@ use Shittybot::TCL::ForkedTcl;
 
 use Tcl;
 use TclEscape;
+use Try::Tiny;
 
 BEGIN {
     with 'MooseX::Callbacks';
     with 'MooseX::Traits';
 };
 
-my $TCL;
+our $TCL;
+our $TCL_STATE_LOADED;
 
 has 'state_path' => (
     is => 'ro',
@@ -30,88 +32,168 @@ has 'irc' => (
     required => 1,
 );
 
-sub spawn {
-    my ($class, %opts) = @_;
+has 'tcl' => (
+    is => 'ro',
+    isa => 'Shittybot::TCL::ForkedTcl',
+    lazy_build => 1,
+    handles => [qw/ export_to_tcl /],
+);
 
-    my $self = $class->new_with_traits(%opts);
-    $self->{tcl} = $self->load_state;
+sub _build_tcl { 
+    my ($self) = @_;
 
-    return $self;
+    return $TCL if $TCL;
+
+    # init the interpreter
+    my $interp = Tcl->new;
+
+    # create forkring tcl interpreter
+    my $tcl = Shittybot::TCL::ForkedTcl->new( interp => $interp );
+    $tcl->Init;
+
+    $TCL = $tcl;
+    return $tcl;
+}
+
+sub BUILD {
+    my ($self) = @_;
+
+    $self->tcl;
+    $self->load_state;
+
+    # export perl vars and methods to TCL here:
+    $self->tcl->export_to_tcl(
+	namespace => 'core',
+	subs => {
+	},
+    );
 }
 
 sub load_state {
-  my $self      = shift;
+    my ($self) = @_;
 
-  return $TCL if $TCL;
-  $TCL = $self->create_tcl;
+    return if $TCL_STATE_LOADED;
 
-  # dangerous call backs
-  #$tcl->CreateCommand('chanlist',sub{join(' ',$self->{irc}->channel_list($_[3]))});
-  return $TCL;
+    $self->load_state_object("procs");
+    $self->load_state_object("vars");
+
+    $TCL_STATE_LOADED = 1;
 }
 
-sub create_tcl {
-  my ($self) = @_;
+sub load_state_object {
+    my ($self, $type) = @_;
 
-  my $state_path = $self->state_path;
-  my $tcl = Tcl->new();
-  $tcl->Init;
-  #$tcl->Eval("proc putlog args {}");
-  $tcl->CreateCommand('putlog',sub{ddx(@_)});
-  $tcl->Eval("proc chanlist args { cache::get irc chanlist }");
-  $tcl->Eval("set smeggdrop_state_path $state_path");
-  $tcl->EvalFile('smeggdrop.tcl');
-  $tcl = Shittybot::TCL::ForkedTcl->new( interp => $tcl );
-  $tcl->Init();
-  return $tcl;
+    # path to vars/procs/metadata
+    my $state_path = $self->state_path;
+
+    # load data mapping from index and data files
+    my $map = $self->load_index("$state_path/$type");
+
+    warn "Loaded " . (scalar(keys %$map)) . " $type\n";
+    my $ok = 0;
+    while (my ($name, $data) = each %$map) {
+	try {
+	    if ($type eq 'vars') {
+		my ($kind, $val) = split(' ', $data, 2);
+		if ($kind eq 'scalar') {
+		    $self->tcl->interp->Eval("list set $name $data");
+		} elsif ($kind eq 'array') {
+		    $self->tcl->interp->Eval("list array set $name $data");
+		} else {
+		    die "unknown saved var type $kind";
+		}
+	    } elsif ($type eq 'procs') {
+		$self->tcl->interp->Eval("proc {$name} $data");
+	    } else {
+		die "wtf";
+	    }
+
+	    $ok++;
+	} catch {
+	    my ($err) = @_;
+	    warn "Failed to load $name: $err";
+	}
+    }
+    warn "Installed $ok $type\n";
 }
 
+# loads a mapping of item => filename from disk
+sub load_index {
+    my ($self, $dir) = @_;
+
+    my $index_fh;
+    my $lines;
+    open($index_fh, "$dir/_index") or die $!;
+    {
+	local $/;
+	$lines = <$index_fh>
+    }
+    close($index_fh);
+
+    $lines =~ s/\n/\\\n/smg;
+    my %index = $self->tcl->interp->Eval("list $lines");
+
+    # load data from files
+    # TODO: asynchrify this for massively improved loading time plz
+    my $ret = {};
+    while (my ($name, $sha1) = each %index) {
+	my $data_fh;
+	my $data_path = "$dir/$sha1";
+	unless (open($data_fh, $data_path)) {
+	    warn "Failed to load $name from state: $!";
+	    next;
+	}
+
+	my $data;
+	{
+	    local $/;
+	    $data = <$data_fh>;
+	}
+	close($data_fh);
+
+	unless ($data) {
+	    warn "Failed to load anything from $data_path";
+	    next;
+	}
+
+	$ret->{$name} = $data;
+    }
+
+    return $ret;
+}
+
+# eval a command in a forked process and print the result to irc
+sub perform {
+    my ($self, $nick, $mask, $handle, $channel, $code) = @_;
+
+    my $ok = 0;
+    my $res;
+    try {
+	# evals through ForkedTcl
+	$res = $self->tcl->Eval($code);
+	$ok = 1;
+    } catch {
+	my ($err) = @_;
+
+	$err =~ s/(at lib.+)$//smg;
+
+	$self->irc->send_to_channel($channel, "$nick: Error evaluating: $err");
+	$ok = 0;
+    };
+    
+    return unless $ok;
+
+    $self->irc->send_to_channel($channel, $res);
+}
 
 sub call {
-  my $self  = shift;
-  my ($nick, $mask, $handle, $channel, $code, $loglines) = @_;
-
-  # see if there is a native handler for this proc
-  my ($proc, $args) = split(/\s+/, $code, 2);
-  # builtin procs start with &
-  my ($builtin) = $proc =~ /^\s*\&(\w+)\b/;
-  if ($builtin) {
-      return if $self->dispatch($builtin, $self, $nick, $mask, $handle, $channel, $builtin, $args, $loglines);  # return if handled by builtin
-  }
-
-  my $ochannel = $channel;
-  ddx(@_);
-  ($nick, $mask, $handle, $channel, $code) = map { tcl_escape($_) } ($nick, $mask, $handle, $channel, $code);
-
-  my $tcl = $self->{tcl};
-
-  my @nicks = keys %{$self->{irc}->channel_list($ochannel)};
-  my @tcl_nicks = map { tcl_escape($_) } @nicks;
-  my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
-
-  # update the log
-  if (ref($loglines)) {
-      #ddx("loglines! ".scalar(@$loglines));
-      my $add_to_log = tcl_escape("cache put irc chanlist $chanlist");
-      my @cmds = map {
-          my ($time,$nick,$mask,$line) = @{$_};
-          $line = tcl_escape( $line );
-          my $cmd = "pubm:smeggdrop_log_line $nick $mask $handle $channel $line";
-          #ddx($cmd);
-          $cmd
-      } @$loglines;
-      my $logcmd = join($/, @cmds);
-      #ddx($logcmd);
-      ddx($tcl->Eval($logcmd));
-  }
+  my ($self, $nick, $mask, $handle, $channel, $code, $loglines) = @_;
 
   # update the chanlist
-  my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
-  my $chancmd = "pub:tcl:perform $nick $mask $handle $channel $update_chanlist";
+  #my $update_chanlist = tcl_escape("cache put irc chanlist $chanlist");
 
-  # perform the actual command
-  return $tcl->Eval("$chancmd;\npub:tcl:perform $nick $mask $handle $channel $code");
-#  return $tcl->Eval("pub:tcl:perform $nick $mask $handle $channel $code");
+  # perform the command
+  return $self->perform($nick, $mask, $handle, $channel, $code);
 }
 
 #not sure about this
