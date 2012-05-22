@@ -4,7 +4,6 @@ A fork of Sam Stephenson's excellent smeggdrop.
 No longer requires eggdrop
 This fork uses AnyEvent, POE is on the outs.
 
-
 Requirements:
 ------------
 - Perl
@@ -22,7 +21,8 @@ Requirements:
   - parent
   - Try::Tiny
   - Net::SCP::Expect
-- Tcl 8.4
+  - Digest::SHA1
+- Tcl 8.5
   - -dev package
   - tcllib
   - tclcurl

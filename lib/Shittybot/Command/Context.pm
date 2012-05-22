@@ -25,11 +25,6 @@ has 'mask' => (
     isa => 'Str|Undef',
 );
 
-has 'handle' => (
-    is => 'ro',
-    isa => 'Str|Undef',
-);
-
 has 'loglines' => (
     is => 'ro',
     isa => 'ArrayRef',
