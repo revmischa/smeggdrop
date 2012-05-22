@@ -11,6 +11,11 @@ has 'twitter_client' => (
     builder => '_build_twitter_client',
 );
 
+has 'twitter_screen_name' => (
+    is => 'rw',
+    isa => 'Str',
+);
+
 sub _build_twitter_client {
     my ($self) = @_;
 
@@ -21,8 +26,10 @@ sub _build_twitter_client {
 
     $client->get('account/verify_credentials', sub {
 	my ($header, $response, $reason) = @_;
- 
-	print "Authenticated to twitter as $response->{screen_name}\n";
+
+	my $acct = $response->{screen_name};
+	$self->twitter_screen_name($acct);
+	print "Authenticated to twitter as $acct\n";
     });
 
     return $client;
@@ -42,6 +49,9 @@ after 'BUILD' => sub {
 sub post_to_twitter {
     my ($self, @args) = @_;
 
+    my $acct = $self->twitter_screen_name
+	or return "Not authenticated to twitter";
+
     my $ctx = $self->context;
     my $nick = $ctx->nick;
 
@@ -53,8 +63,8 @@ sub post_to_twitter {
 	status => $post,
     }, sub {
 	my ($header, $response, $reason) = @_; 
-	
-	$self->reply("Posted to twitter: $reason");
+
+	$self->reply("Posting '@args' to \@$acct: $reason");
     });
     
     return;
