@@ -96,9 +96,9 @@ sub load_state_object {
 	    if ($type eq 'vars') {
 		my ($kind, $val) = split(' ', $data, 2);
 		if ($kind eq 'scalar') {
-		    $self->tcl->interp->Eval("list set $name $data");
+		    $self->tcl->interp->Eval("set {$name} $val", Tcl::EVAL_GLOBAL);
 		} elsif ($kind eq 'array') {
-		    $self->tcl->interp->Eval("list array set $name $data");
+		    $self->tcl->interp->Eval("array set {$name} $val", Tcl::EVAL_GLOBAL);
 		} else {
 		    die "unknown saved var type $kind";
 		}
