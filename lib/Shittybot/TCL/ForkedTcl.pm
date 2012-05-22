@@ -58,6 +58,12 @@ has 'indices' => (
 sub BUILD {
     my ($self) = @_;
 
+    $self->init;
+} 
+
+sub init {
+    my ($self) = @_;
+
     my $interp = $self->interp;
     my $callback = sub {
         my ($baby, $data) = @_;
@@ -82,17 +88,26 @@ sub BUILD {
 	}
     };
 
+    # create forkring
     my $fork_ring = ForkRing->new(
 	code => $callback,
 	timeoutSeconds => 15,
     );
     $self->tcl_forkring($fork_ring);
 
+    # load core tcl procs
+    # get path to lib/
+    # SKEEZY HACK: replace with something smarter
+    use FindBin;
+    my $lib_path = "$FindBin::Bin/lib";
+    $self->interp->EvalFile("$lib_path/core.tcl");
+
     $self->load_state;
+
     $self->initted(1);
 }
 
-# wrap a Tcl eval in a perl eval
+# evals tcl with a safe slave interpreter
 # returns ($result, $success)
 # if $success == 0, $result will be err str
 sub safe_eval {
@@ -104,7 +119,8 @@ sub safe_eval {
 	$self->export_ctx_to_tcl($ctx);
 	my $command = $ctx->command;
 
-	$res = $self->interp->Eval($command);
+	# is this the right way to call?
+	$res = $self->interp->Eval("safe_interp $command");
 
 	$ok = 1;
     } catch {
@@ -315,7 +331,13 @@ sub compare_states {
     my $changed = {};
 
     foreach my $category ('procs', 'vars') {
+	# can probably fold both of these into one method. left as an
+	# excersize for the reader.
+
 	while (my ($k, $v) = each %{ $pre->{$category} }) {
+	    # skip context info
+	    next if index($k, 'context:') == 0;
+
 	    my $post_v = $post->{$category}{$k};
 
 	    # did it change?
@@ -325,6 +347,9 @@ sub compare_states {
 	    $changed->{$category}{$k} = $post_v;
 	}
 	while (my ($k, $v) = each %{ $post->{$category} }) {
+	    # skip context info
+	    next if index($k, 'context:') == 0;
+
 	    # already got this one?
 	    next if $changed->{$category}{$k};
 
