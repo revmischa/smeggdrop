@@ -70,7 +70,7 @@ sub BUILD {
 
 	    my $res;
 	    if ($command eq "Eval") {
-		$res = $self->_eval($ctx);
+		$res = $self->safe_eval($ctx);
 	    } else {
 		die "What is command: $command?";
 	    }
@@ -92,8 +92,10 @@ sub BUILD {
     $self->initted(1);
 }
 
-# this is where commands actually get evaluated by the TCL interpreter
-sub _eval {
+# wrap a Tcl eval in a perl eval
+# returns ($result, $success)
+# if $success == 0, $result will be err str
+sub safe_eval {
     my ($self, $ctx) = @_;
 
     my $res;
@@ -102,9 +104,8 @@ sub _eval {
 	$self->export_ctx_to_tcl($ctx);
 	my $command = $ctx->command;
 
-	# evals $command, saving changes to procs and vars
-	$res = $self->versioned_eval($command);
-	
+	$res = $self->interp->Eval($command);
+
 	$ok = 1;
     } catch {
 	my ($err) = @_;
@@ -113,7 +114,7 @@ sub _eval {
 	$ok = 0;
     };
 
-    return $res;
+    return ($res, $ok);
 }
 
 sub load_state {
@@ -222,7 +223,10 @@ sub versioned_eval {
     my $pre_state = $self->state;
 
     # evaluate command in tcl interpreter
-    my $res = $self->interp->Eval($command);
+    my ($res, $ok) = $self->safe_eval($command);
+
+    # return err msg on failure
+    return $res unless $ok; 
 
     # get state after eval, compare with before state
     my $post_state = $self->state;
@@ -431,7 +435,7 @@ sub Eval {
     die "Not initialized" unless $self->initted;
 
     # for now skip forking. it breaks anyevent.
-    return $self->_eval($ctx);
+    return $self->versioned_eval($ctx);
 
     # (disabled) fork and eval in child
     my @cargs = ("Eval", { %$ctx });
