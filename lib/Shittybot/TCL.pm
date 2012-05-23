@@ -85,7 +85,7 @@ sub call {
 
   my $tcl = $self->{tcl};
 
-  my @nicks = keys %{$self->{irc}->channel_list($ochannel)};
+  my @nicks = keys %{$self->{irc}->channel_list($ochannel)||{}};
   my @tcl_nicks = map { tcl_escape($_) } @nicks;
   my $chanlist = "[list ".join(' ',@tcl_nicks)."]";
 

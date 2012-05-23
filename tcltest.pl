@@ -21,7 +21,7 @@ print "Now test head$/";
 print $tcl->Eval("pub:tcl:perform nick mask handle channel  {http head http://localhost}"),$/;
 
 
-
+die "What";
 use Shittybot::TCL;
 
 my $s = Shittybot::TCL->new("./state-test");
