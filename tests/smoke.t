@@ -45,6 +45,7 @@ sub make_command {
 }
 # basic tcl
 my $command = make_command("return what");
+warn $tcl->safe_eval($command);
 ok($tcl->safe_eval($command) eq "what","eval return what -- TCL");
 
 # make a proc

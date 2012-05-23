@@ -1,13 +1,13 @@
-set our_last_safe_interp 0
-set safe_interp_is_safe 0
+
 proc get_safe_interp {args} {
     global safe_interp_is_safe
     global our_last_safe_interp
-    if { $safe_interp_is_safe != 1 } {
+    if { $safe_interp_is_safe==1 } {
+    } else {
         set our_last_safe_interp [interp create -safe]
         set safe_interp_is_safe 1
     }
-    return $our_last_safe_interp
+    return $our_last_safe_interp        
 }
 
 proc safe_interp_eval {command} {
