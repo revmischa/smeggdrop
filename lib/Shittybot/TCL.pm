@@ -85,6 +85,14 @@ sub _build_interp {
     die "Could not find lib/ dir" unless defined($lib_path);
     $interp->EvalFile("$lib_path/core.tcl");
     
+    $self->reload_vars_and_procs($interp);
+
+    $INTERP = $interp;
+    return $interp;
+}
+
+sub reload_vars_and_procs {
+    my ($self, $interp) = @_;
     # load saved procs/vars/meta
     my $loader = Shittybot::TCL::Loader->new(
 	interp => $interp,
@@ -92,10 +100,8 @@ sub _build_interp {
 	indices => $self->indices,
     );
     $loader->load_state;
-
-    $INTERP = $interp;
-    return $interp;
 }
+
 
 sub _build_safe_interp {
     my ($self) = @_;
@@ -202,6 +208,9 @@ sub versioned_eval {
     my ($res, $ok) = $self->_safe_eval($command);
 
     # return err msg on failure
+
+    $self->reload_state_if_necessary($pre_state);
+
     return $res unless $ok;
 
     # get state after eval, compare with before state
@@ -214,6 +223,15 @@ sub versioned_eval {
 
     return $res;
 }
+
+sub reload_state_if_necessary {
+    my ($self) = @_;
+    my $res = $self->interp->Eval("SInterp::needs_state_reload");
+    if ($res == 1) {
+            $self->reload_vars_and_procs($self->interp);
+    }
+}
+
 
 # updates the proc and var state files and indices
 sub update_saved_state {
