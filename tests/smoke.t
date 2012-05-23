@@ -11,6 +11,7 @@ use_ok('Moose');
 use_ok('Shittybot');
 use_ok('Shittybot::TCL');
 use_ok('TclEscape');
+use_ok('Digest::SHA1');
 
 use TclEscape;
 TclEscape::escape_test();

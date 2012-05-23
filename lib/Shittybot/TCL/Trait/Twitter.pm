@@ -2,12 +2,18 @@ package Shittybot::TCL::Trait::Twitter;
 
 use Moose::Role;
 
+use AnyEvent;
 use AnyEvent::Twitter;
 
 has 'twitter_client' => (
     is => 'ro',
     isa => 'AnyEvent::Twitter',
-    lazy_build => 1,
+    builder => '_build_twitter_client',
+);
+
+has 'twitter_screen_name' => (
+    is => 'rw',
+    isa => 'Str',
 );
 
 sub _build_twitter_client {
@@ -20,34 +26,48 @@ sub _build_twitter_client {
 
     $client->get('account/verify_credentials', sub {
 	my ($header, $response, $reason) = @_;
- 
-	print "Authenticated to twitter as $response->{screen_name}\n";
+
+	my $acct = $response->{screen_name};
+	$self->twitter_screen_name($acct);
+	print "Authenticated to twitter as $acct\n";
     });
 
     return $client;
 }
 
-sub BUILD{}; after 'BUILD' => sub {
+after 'BUILD' => sub {
     my ($self) = @_;
 
-    $self->register_callbacks(
-	post_twat => \&post_to_twitter,
+    $self->export_to_tcl(
+	namespace => 'twitter',
+	subs => {
+	    'post' => sub { $self->post_to_twitter(@_) },
+	},
     );
 };
 
 sub post_to_twitter {
-    my ($self, $nick, $mask, $handle, $channel, $proc, $args, $loglines) = @_;
+    my ($self, @args) = @_;
 
-    my $twit = $self->twitter_client;
+    my $acct = $self->twitter_screen_name
+	or return "Not authenticated to twitter";
 
-    warn "$nick posting to twitter: '$args'\n";
+    my $ctx = $self->context;
+    my $nick = $ctx->nick;
 
-    $twit->post('statuses/update', {
-	status => $args,
+    my $post = "@args";
+
+    warn "$nick posting to twitter: '$post'\n";
+
+    $self->twitter_client->post('statuses/update', {
+	status => $post,
     }, sub {
 	my ($header, $response, $reason) = @_; 
-	$self->irc->send_to_channel($channel, "posted to twitter: $response/$reason");
+
+	$self->reply("Posting '@args' to \@$acct: $reason");
     });
+    
+    return;
 }
 
 1;
