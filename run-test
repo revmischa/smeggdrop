@@ -7,7 +7,7 @@ export PERL5LIB
 #PERL_DL_NONLAZY=1 perl -CIOESDA bot.pl
 #PERL_DL_NONLAZY=1 perl -C bot.pl
 echo tests
-PERL_DL_NONLAZY=1 perl -C tests/smoke.t
+PERL_DL_NONLAZY=1 perl -C t/smoke.t
 #echo  tcltest
 #PERL_DL_NONLAZY=1 perl -C tcltest.pl
 #echo  test-runner
