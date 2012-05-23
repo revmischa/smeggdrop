@@ -1,7 +1,4 @@
 #!/bin/bash
 ulimit -v 500000 -m 500000 -d 500000 -s 8192
 ulimit -a
-echo Running bot $$
-#LANG=en_CA.UTF-8
-#PERL_DL_NONLAZY=1 perl -CIOESDA bot.pl
-PERL_DL_NONLAZY=1 nice -n 10 perl -C bot.pl
+PERL_DL_NONLAZY=1 nice -n 10 perl bot.pl
