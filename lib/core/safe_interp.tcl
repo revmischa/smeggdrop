@@ -7,7 +7,7 @@ proc get_safe_interp {args} {
         set our_last_safe_interp [interp create -safe]
         set safe_interp_is_safe 1
     }
-    return $our_last_safe_interp        
+    return $our_last_safe_interp 
 }
 
 proc safe_interp_eval {command} {
