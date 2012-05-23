@@ -6,6 +6,7 @@ namespace eval SInterp {
     variable our_last_safe_interp 0
 }
 
+# I think this has to be in a namespace that we can't modify
 
 proc get_safe_interp {args} {
     global SInterp::safe_interp_is_safe

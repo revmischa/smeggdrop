@@ -84,7 +84,7 @@ sub _build_interp {
     }
     die "Could not find lib/ dir" unless defined($lib_path);
     $interp->EvalFile("$lib_path/core.tcl");
-
+    
     # load saved procs/vars/meta
     my $loader = Shittybot::TCL::Loader->new(
 	interp => $interp,
@@ -202,7 +202,7 @@ sub versioned_eval {
     my ($res, $ok) = $self->_safe_eval($command);
 
     # return err msg on failure
-    return $res unless $ok; 
+    return $res unless $ok;
 
     # get state after eval, compare with before state
     my $post_state = $self->state;
@@ -336,17 +336,18 @@ sub state {
     };
 }
 
+
 # returns hashref of proc => body
 sub procs {
     my ($self) = @_;
 
     my $res = {};
     my $interp = $self->interp;
-    my @proc_names = $interp->Eval('info procs');
+    my @proc_names = $interp->eval_in_safe('info procs');
 
     foreach my $proc (@proc_names) {
-	my $args = $interp->Eval("info args {$proc}");
-	my $body = $interp->Eval("info body {$proc}");
+	my $args = $interp->eval_in_safe("info args {$proc}");
+	my $body = $interp->eval_in_safe("info body {$proc}");
 	$res->{$proc} = "{$args} {$body}";
     }
 
@@ -359,15 +360,15 @@ sub vars {
 
     my $res = {};
     my $interp = $self->interp;
-    my @var_names = $interp->Eval('info vars');
+    my @var_names = $interp->eval_in_safe('info vars');
 
     foreach my $var (@var_names) {
 	# is it an array?
-	my $is_array = $interp->Eval("array exists {$var}");
+	my $is_array = $interp->eval_in_safe("array exists {$var}");
 	if ($is_array) {
-	    $res->{$var} = 'array {' . $interp->Eval("array get {$var}") . '}';
+	    $res->{$var} = 'array {' . $interp->eval_in_safe("array get {$var}") . '}';
 	} else {
-	    $res->{$var} = 'scalar {' . $interp->Eval("set {$var}") . '}';
+	    $res->{$var} = 'scalar {' . $interp->eval_in_safe("set {$var}") . '}';
 	}
     }
 
@@ -414,3 +415,14 @@ sub export_ctx_to_tcl {
 }
 
 __PACKAGE__->meta->make_immutable;
+# I know this is wrong
+package Tcl;
+use strict;
+sub eval_in_safe {
+    my ($self, $command) = @_;
+    my $eval = "safe_interp_eval {$command}";
+    #warn "Trying to safe eval @_  $eval ";
+    return $self->Eval($eval);
+}
+
+1;
