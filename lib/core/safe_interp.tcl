@@ -33,6 +33,7 @@ proc safe_interp_eval {command} {
     global SInterp::safe_interp_is_safe
     set _interp [get_safe_interp]
     set safe_interp_is_safe 0
+    interp limit $_interp command -value 1000
     set _result [interp eval $_interp $command]
     set safe_interp_is_safe 1
     return $_result

@@ -1,5 +1,5 @@
 use strict;
-use Test::More tests => 22;
+use Test::More tests => 26;
 use_ok('Data::Dumper');
 use_ok('AnyEvent::IRC::Connection');
 use_ok('AnyEvent::IRC::Client');
@@ -62,4 +62,22 @@ my $vars = $tcl->safe_eval(make_command("info var *"));
 warn "VARS: $vars PROCS: $procs";
 my @procs = split(/\s+/, $procs);
 ok(scalar(grep { $_ eq '.' } @procs), "has dot defined?");
-ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
+
+
+$command = make_command("string repeat XXXX 4000000000");
+ok(!$tcl->safe_eval($command),"String repeat too much");
+
+$command = make_command(". what");
+ok($tcl->safe_eval($command) eq "what","Proc Persistentence after failure");
+
+#this test makes sure that we don't lose our old procs
+$command = make_command("proc toolong {} { set x 0; while {1} { incr x } }");
+ok(!$tcl->safe_eval($command),"Set proc");
+$command = make_command("toolong");
+my $v = $tcl->safe_eval($command);
+warn $v;
+ok($v =~ /Error/,"proc runs too long");
+$command = make_command(". what");
+my $res = $tcl->safe_eval($command);
+warn $res;
+ok($res eq "what","Proc Persistentence after failure");
