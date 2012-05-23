@@ -10,8 +10,11 @@ proc safe_interp {args} {
     # set bg error handler
     $_interp bgerror safe_interp_bgerror
 
+    # get current command
+    set _current_command "$context::command"
+
     # do safe eval
-    set _interp_result [interp eval $_interp $args]
+    set _interp_result [interp eval $_interp $_current_command]
     return $_interp_result
 }
 

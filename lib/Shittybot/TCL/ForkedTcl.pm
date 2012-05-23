@@ -336,7 +336,7 @@ sub compare_states {
 
 	while (my ($k, $v) = each %{ $pre->{$category} }) {
 	    # skip context info
-	    next if index($k, 'context:') == 0;
+	    next if index($k, 'context::') == 0;
 
 	    my $post_v = $post->{$category}{$k};
 
@@ -348,7 +348,7 @@ sub compare_states {
 	}
 	while (my ($k, $v) = each %{ $post->{$category} }) {
 	    # skip context info
-	    next if index($k, 'context:') == 0;
+	    next if index($k, 'context::') == 0;
 
 	    # already got this one?
 	    next if $changed->{$category}{$k};
@@ -421,7 +421,7 @@ sub context {
     my @vars_to_import = qw/channel nick mask command/;
     my %ctx;
     foreach my $var (@vars_to_import) {
-	my $val = $self->get_tcl_var('context:' . $var);
+	my $val = $self->get_tcl_var('context::' . $var);
 	$ctx{$var} = $val;
     }
 
@@ -435,7 +435,7 @@ sub export_ctx_to_tcl {
     # set current ctx vars
     my @vars_to_export = qw/channel nick mask command/;
     my %export_map;
-    my $prefix = 'context:';
+    my $prefix = '';
     foreach my $var (@vars_to_export) {
 	my $val = $ctx->$var;
 	$val = '' unless defined $val;
@@ -447,7 +447,8 @@ sub export_ctx_to_tcl {
     warn Dumper(\%export_map);
 
     $self->export_to_tcl(
-	namespace => '',  # if this is set to anything other than '' the variables vanish!
+	namespace => 'context',
+	subs => { stub => sub {} },  # if there are no subs, it won't create the namespace :(
 	vars => \%export_map,
     );
 }

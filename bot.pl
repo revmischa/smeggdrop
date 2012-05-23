@@ -2,14 +2,15 @@
 
 # NOTE: This may segfault unless run with PERL_DL_NONLAZY=1
 
+# must be loaded first
+use Tcl;
+
 use Moose;
 
 use lib 'lib';
 
 use Carp::Always;
 use Shittybot;
-
-# this needs to be loaded after Tcl
 use Config::JFDI;
 
 ## anyevent main CV
