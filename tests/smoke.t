@@ -1,5 +1,5 @@
 use strict;
-use Test::More tests => 19;
+use Test::More tests => 20;
 use_ok('Data::Dumper');
 use_ok('AnyEvent::IRC::Connection');
 use_ok('AnyEvent::IRC::Client');
@@ -29,9 +29,30 @@ ok($shittybot->isa("Shittybot"),"Shittybot");
 
 # try some tcl stuff out
 my $tcl = $shittybot->tcl();
-ok($tcl->can("call"),"Can Call the TCL");
-ok($tcl->call("frigga",'*@*',"handle","#channel","return what","") eq "what","Return TCL");
+ok($tcl->can("safe_eval"),"Can safe_eval the TCL");
+
+# look this smells bad
+sub make_command {
+    my $command = shift;
+    my $cmd_ctx = Shittybot::Command::Context->new(
+        nick => "frigga",
+        mask => "*@*",
+        channel => "#channel",
+        command => $command,
+        loglines => []
+    );
+    return $cmd_ctx;
+}
+# basic tcl
+my $command = make_command("return what");
+ok($tcl->safe_eval($command) eq "what","Return TCL");
+
+# make a proc
 my $dotproc = 'proc . args {lappend args; return [join ${args}]}';
-ok(defined($tcl->call("frigga",'*@*',"handle","#channel",$dotproc,"")),"Proc");
-ok($tcl->call("frigga",'*@*',"handle","#channel",". what") eq "what","test proc");
+$command = make_command($dotproc);
+ok(defined($tcl->safe_eval($command)),"Make a Proc");
+
+# call that proc -- test if it saved the proc
+$command = make_command(". what");
+ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
 

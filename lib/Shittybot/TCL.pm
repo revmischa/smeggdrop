@@ -74,7 +74,15 @@ sub _build_interp {
     # get path to lib/
     # SKEEZY HACK: replace with something smarter
     use FindBin;
-    my $lib_path = "$FindBin::Bin/lib";
+    my @lib_paths = ("$FindBin::Bin/lib","./lib");
+    my $lib_path = undef; 
+    foreach my $path (@lib_paths) {
+       if (-e $path) { 
+           $lib_path = $path;
+           last;
+       }
+    }
+    die "Could not find lib/ dir" unless defined($lib_path);
     $interp->EvalFile("$lib_path/core.tcl");
 
     # load saved procs/vars/meta
@@ -131,9 +139,10 @@ sub safe_eval {
 	$ok = 0;
     };
     
-    return unless $ok;
+    return undef unless $ok;
 
     $self->irc->send_to_channel($channel, $res);
+    return $res;
 }
 
 # say something in the current channel
