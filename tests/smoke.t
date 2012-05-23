@@ -45,7 +45,7 @@ sub make_command {
 }
 # basic tcl
 my $command = make_command("return what");
-ok($tcl->safe_eval($command) eq "what","Return TCL");
+ok($tcl->safe_eval($command) eq "what","eval return what -- TCL");
 
 # make a proc
 my $dotproc = 'proc . args {lappend args; return [join ${args}]}';

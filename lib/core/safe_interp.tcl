@@ -1,7 +1,26 @@
+set our_last_safe_interp 0
+set safe_interp_is_safe 0
+proc get_safe_interp {args} {
+    global safe_interp_is_safe
+    global our_last_safe_interp
+    if { $safe_interp_is_safe != 1 } {
+        set our_last_safe_interp [interp create -safe]
+        set safe_interp_is_safe 1
+    }
+    return $our_last_safe_interp
+}
+
+proc safe_interp_eval {command} {
+    set _interp [get_safe_interp]
+    set _result [interp eval $_interp $command]
+    return $_result
+}
+
+
 proc safe_interp {args} {
     # create a safe interpreter
     # this has many harmful functions hidden
-    set _interp [interp create -safe]
+    set _interp [get_safe_interp]
 
     # set interp resource limits
     #interp limit $_interp command -value 1000  # max number of commands that can be executed
@@ -14,7 +33,9 @@ proc safe_interp {args} {
     set _current_command "$context::command"
 
     # do safe eval
-    set _interp_result [interp eval $_interp $_current_command]
+    #set _interp_result [interp eval $_interp $_current_command]
+    set _interp_result [safe_interp_eval $_current_command]
+
     return $_interp_result
 }
 
