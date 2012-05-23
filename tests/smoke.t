@@ -79,5 +79,8 @@ warn $v;
 ok($v =~ /Error/,"proc runs too long");
 $command = make_command(". what");
 my $res = $tcl->safe_eval($command);
-warn $res;
+#warn $res;
 ok($res eq "what","Proc Persistentence after failure");
+
+# missing tests:
+# * is context set?
