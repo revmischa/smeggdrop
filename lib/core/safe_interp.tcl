@@ -4,8 +4,18 @@ namespace eval SInterp {
     
     variable safe_interp_is_safe 0
     variable our_last_safe_interp 0
+
+    proc needs_state_reload {} {
+        variable safe_interp_is_safe
+        if { $safe_interp_is_safe == 1 } {
+            return 0
+        } else {
+            return 1
+        }
+    }
 }
 
+# I think this has to be in a namespace that we can't modify
 
 proc get_safe_interp {args} {
     global SInterp::safe_interp_is_safe

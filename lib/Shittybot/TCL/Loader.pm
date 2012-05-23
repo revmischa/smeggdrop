@@ -51,14 +51,14 @@ sub load_state_object {
 	    if ($type eq 'vars') {
 		my ($kind, $val) = split(' ', $data, 2);
 		if ($kind eq 'scalar') {
-		    $self->interp->Eval("set {$name} $val", Tcl::EVAL_GLOBAL);
+		    $self->interp->eval_in_safe("set {$name} $val", Tcl::EVAL_GLOBAL);
 		} elsif ($kind eq 'array') {
-		    $self->interp->Eval("array set {$name} $val", Tcl::EVAL_GLOBAL);
+		    $self->interp->eval_in_safe("array set {$name} $val", Tcl::EVAL_GLOBAL);
 		} else {
 		    die "unknown saved var type $kind";
 		}
 	    } elsif ($type eq 'procs') {
-		$self->interp->Eval("proc {$name} $data");
+		$self->interp->eval_in_safe("proc {$name} $data");
 	    } else {
 		die "wtf";
 	    }
@@ -89,7 +89,7 @@ sub load_index {
     close($index_fh);
 
     $lines =~ s/\n/\\\n/smg;
-    my %index = $self->interp->Eval("list $lines");
+    my %index = $self->interp->eval_in_safe("list $lines");
 
     # save raw index for later
     $self->indices->{$type} = \%index;

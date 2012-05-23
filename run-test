@@ -1,4 +1,3 @@
 #!/bin/bash
 ulimit -v 500000 -m 500000
 PERL_DL_NONLAZY=1 prove -v -Ilib t
-
