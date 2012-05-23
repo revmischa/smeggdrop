@@ -58,6 +58,8 @@ $command = make_command(". what");
 ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
 
 my $procs = $tcl->safe_eval(make_command("info proc *"));
+my $vars = $tcl->safe_eval(make_command("info var *"));
+warn "VARS: $vars PROCS: $procs";
 my @procs = split(/\s+/, $procs);
 ok(scalar(grep { $_ eq '.' } @procs), "has dot defined?");
 ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
