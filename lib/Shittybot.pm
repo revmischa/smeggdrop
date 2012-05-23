@@ -51,6 +51,7 @@ has 'tcl' => (
     is => 'ro',
     isa => 'Shittybot::TCL',
     lazy_build => 1,
+    handles => [qw/ safe_eval /],
 );
 
 sub _build_tcl {
@@ -68,12 +69,20 @@ sub _build_tcl {
         irc => $self,
         traits => \@traits,
     );
-    say "Spawned TCL interpreter for state $state_dir";
 
     return $tcl;
 }
 
 sub init {
+    my ($self) = @_;
+
+    $self->init_irc;
+    $self->init_tcl;
+}
+
+sub init_tcl { shift->tcl }
+
+sub init_irc {
     my ($self) = @_;
 
     my $network_conf = $self->network_config;
@@ -217,8 +226,7 @@ sub init {
         },
     );
 
-
-    $self->ctcp_auto_reply ('VERSION', ['VERSION', 'Smeggdrop']);
+    $self->ctcp_auto_reply ('VERSION', ['VERSION', 'Shittybot']);
 
     # default crap
     $self->reg_cb
@@ -275,8 +283,7 @@ sub init {
 		loglines => $loglines,
 	    );
 
-            my $out = $self->tcl->call($cmd_ctx);
-            $self->send_to_channel($chan, $out);
+            $self->safe_eval($cmd_ctx);
         } else {
             $txt = Encode::decode( 'utf8', $txt );
             $self->append_chat_line( $chan, $self->log_line($nick, $mask, $txt) );

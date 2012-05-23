@@ -6,6 +6,7 @@
 use Tcl;
 
 use Moose;
+use feature 'say';
 
 use lib 'lib';
 
@@ -15,25 +16,31 @@ use Config::JFDI;
 ## anyevent main CV
 my $cond = AnyEvent->condvar;
 
-# load shittybot.yml/conf/ini/etc
-my $config_raw = Config::JFDI->new(name => 'shittybot');
-my $config = $config_raw->get;
-
-my $networks = $config->{networks}
-    or die "Unable to find network configuration";
-
-# spawn client for each network
-my @clients;
-while (my ($net, $net_conf) = each %$networks) {
-    my $client = Shittybot->new(
-        network => $net,
-        config => $config,
-        network_config => $net_conf,
-    );
-    $client->init;
-
-    push @clients, $client;
-}
+run();
 
 $cond->wait;
+
+sub run {
+    # load shittybot.yml/conf/ini/etc
+    my $config_raw = Config::JFDI->new(name => 'shittybot');
+    my $config = $config_raw->get;
+
+    my $networks = $config->{networks}
+        or die "Unable to find network configuration";
+
+    # spawn client for each network
+    my @clients;
+    while (my ($net, $net_conf) = each %$networks) {
+	my $client = Shittybot->new(
+	    network => $net,
+	    config => $config,
+	    network_config => $net_conf,
+	);
+
+	$client->init;
+
+	push @clients, $client;
+    }	
+}
+
 
