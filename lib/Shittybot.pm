@@ -63,7 +63,7 @@ sub _build_tcl {
 
     my @traits = map { "Shittybot::TCL::Trait::$_" } @$traits;
 
-    my $tcl = Shittybot::TCL->spawn(
+    my $tcl = Shittybot::TCL->new(
         state_path => $state_dir,
         irc => $self,
         traits => \@traits,
@@ -267,9 +267,16 @@ sub init {
 
             # add log info to interperter call
             my $loglines = $self->slurp_chat_lines($chan);
-            my $out = $self->tcl->call($nick, $mask, '', $chan, $code, $loglines);
-            $self->send_to_channel($chan, $out);
+	    my $cmd_ctx = Shittybot::Command::Context->new(
+		nick => $nick,
+		mask => $mask,
+		channel => $chan,
+		command => $code,
+		loglines => $loglines,
+	    );
 
+            my $out = $self->tcl->call($cmd_ctx);
+            $self->send_to_channel($chan, $out);
         } else {
             $txt = Encode::decode( 'utf8', $txt );
             $self->append_chat_line( $chan, $self->log_line($nick, $mask, $txt) );

@@ -9,7 +9,6 @@ use Moose;
 
 use lib 'lib';
 
-use Carp::Always;
 use Shittybot;
 use Config::JFDI;
 
