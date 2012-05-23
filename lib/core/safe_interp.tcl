@@ -15,6 +15,11 @@ namespace eval SInterp {
     }
 }
 
+# get current context vars
+proc nick {} {return $context::nick}
+proc channel {} {return $context::channel}
+proc mask {} {return $context::mask}
+
 # I think this has to be in a namespace that we can't modify
 
 proc get_safe_interp {args} {
@@ -23,16 +28,19 @@ proc get_safe_interp {args} {
     if { $safe_interp_is_safe==1 } {
     } else {
         # CREATE singleton
-
         set our_last_safe_interp [interp create -safe]
 
         # set bg error handler
-
         interp bgerror $our_last_safe_interp safe_interp_bgerror
 
         # set interp resource limits
         #interp limit $_interp command -value 1000  # max number of commands that can be executed
         #...
+
+	# export some procs to slave
+	$our_last_safe_interp alias nick nick
+	$our_last_safe_interp alias mask mask
+	$our_last_safe_interp alias channel channel
 
         set safe_interp_is_safe 1
     }
@@ -43,24 +51,21 @@ proc safe_interp_eval {command} {
     global SInterp::safe_interp_is_safe
     set _interp [get_safe_interp]
     set safe_interp_is_safe 0
-    interp limit $_interp command -value 1000
+    #interp limit $_interp command -value 1000  # this would be nice, but it's not per-eval
     set _result [interp eval $_interp $command]
     set safe_interp_is_safe 1
     return $_result
 }
-
 
 proc safe_interp {args} {
     # create a safe interpreter
     # this has many harmful functions hidden
     set _interp [get_safe_interp]
     
-
     # get current command
     set _current_command "$context::command"
 
     # do safe eval
-    #set _interp_result [interp eval $_interp $_current_command]
     set _interp_result [safe_interp_eval $_current_command]
 
     return $_interp_result

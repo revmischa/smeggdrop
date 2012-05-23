@@ -1,15 +1,18 @@
 ---
 
-state_directory: state-hardchats/
+traits:
+    - Core
+    - Twitter
+
+state_directory: state-local
 
 networks:
     hardchats:
-        address: localhost
-	port: 6696
+        address: irc.hardchats.com
+        port: 6667
         nickname: montel
         username: montel
         realname: Montel Deonte Edwards
-
 
         nickserv: NickServ
         nickpass: nickpass
@@ -21,24 +24,11 @@ networks:
         ownerpass: pw
         sessionttl: 120 # Session Time-To-Live
                        # In seconds
-	
 
-        trigger: '^tcl\s'
+        trigger: '^\s*tcl\s'
 
         channels:
             - '#penni'
             - '#dildo'
 
-
-	linelimit: 100
-
-    buttes:
-        address: irc.buttes.org
-        nickname: montel
-        username: montel
-        realname: Montel Deonte Edwards
-
-        trigger: '^tcl\s'
-
-        channels:
-            - '#shittybot'
+        linelimit: 20
