@@ -1,5 +1,5 @@
 use strict;
-use Test::More tests => 20;
+use Test::More tests => 22;
 use_ok('Data::Dumper');
 use_ok('AnyEvent::IRC::Connection');
 use_ok('AnyEvent::IRC::Client');
@@ -56,3 +56,7 @@ ok(defined($tcl->safe_eval($command)),"Make a Proc");
 $command = make_command(". what");
 ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
 
+my $procs = $tcl->safe_eval(make_command("info proc *"));
+my @procs = split(/\s+/, $procs);
+ok(scalar(grep { $_ eq '.' } @procs), "has dot defined?");
+ok($tcl->safe_eval($command) eq "what","test dot proc -- is the proc saved?");
