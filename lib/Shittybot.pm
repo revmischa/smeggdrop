@@ -64,7 +64,7 @@ sub _build_tcl {
 
     my @traits = map { "Shittybot::TCL::Trait::$_" } @$traits;
 
-    my $tcl = Shittybot::TCL->new(
+    my $tcl = Shittybot::TCL->new_with_traits(
         state_path => $state_dir,
         irc => $self,
         traits => \@traits,

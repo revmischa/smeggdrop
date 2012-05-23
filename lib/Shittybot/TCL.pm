@@ -22,7 +22,7 @@ BEGIN {
 };
 
 # save currently loaded interpreter state to share across irc clients
-our ($INTERP, $FORKER, $INDICES);
+our ($INTERP, $INTERP_INITTED, $FORKER, $INDICES);
 $INDICES = {};
 
 has 'state_path' => (
@@ -41,8 +41,8 @@ has 'irc' => (
 has 'interp' => (
     is => 'ro',
     isa => 'Tcl',
-    handles => [qw/ export_to_tcl /],
-    lazy_build => 1,
+    handles => [qw/ export_to_tcl Eval EvalFile /],
+    builder => '_build_interp',
 );
 
 # forkring dispatcher to interpreter
@@ -84,8 +84,6 @@ sub _build_interp {
     }
     die "Could not find lib/ dir" unless defined($lib_path);
     $interp->EvalFile("$lib_path/core.tcl");
-    
-    $self->reload_vars_and_procs($interp);
 
     $INTERP = $interp;
     return $interp;
@@ -121,10 +119,25 @@ sub _build_safe_interp {
 sub BUILD {
     my ($self) = @_;
 
-    $self->init_interp;
+    $self->init_interp_once;
 }
 
-sub init_interp { shift->interp }
+sub init_interp_once {
+    my ($self) = @_;
+
+    return if $INTERP_INITTED;
+
+    # only run once
+    $self->init_interp;
+
+    $INTERP_INITTED = 1;
+}
+
+# modify this in traits to install custom procs/vars
+sub init_interp {
+    my ($self) = @_;
+    $self->reload_vars_and_procs($self->interp);
+}
 
 # safely evals a command and print the result in irc
 sub safe_eval {
@@ -183,7 +196,7 @@ sub _safe_eval {
 	$self->export_ctx_to_tcl($ctx);
 
 	# safe_interp reads the current command from the exported context
-	$res = $self->interp->Eval("safe_interp");
+	$res = $self->Eval("safe_interp");
 
 	# didn't explode! score
 	$ok = 1;
@@ -226,9 +239,9 @@ sub versioned_eval {
 
 sub reload_state_if_necessary {
     my ($self) = @_;
-    my $res = $self->interp->Eval("SInterp::needs_state_reload");
+    my $res = $self->Eval("SInterp::needs_state_reload");
     if ($res == 1) {
-            $self->reload_vars_and_procs($self->interp);
+	$self->init_interp($self->interp);
     }
 }
 
@@ -430,6 +443,33 @@ sub export_ctx_to_tcl {
 	subs => { stub => sub {} },  # if there are no subs, it won't create the namespace :(
 	vars => \%export_map,
     );
+}
+
+# export a proc to interp and alias it in slave
+# procs = hashref of proc name => callback
+sub export_procs_to_slave {
+    my ($self, $namespace, $procs) = @_;
+
+    # alias from parent to slave
+    while (my ($name, $cb) = each %$procs) {
+	# wrap callback to include $self
+	my $cb_wrapped = sub {
+	    $cb->($self, @_);
+	};
+
+	my $fullname = join('::', $namespace, $name);
+	say "Exporting $fullname builtin to slave";
+
+	# export to parent interp
+	$self->export_to_tcl(
+	    namespace => $namespace,
+	    subs => { $name => $cb_wrapped },
+	);
+
+	$self->Eval("export_proc_to_slave {$fullname}");
+    }
+
+    # delete from parent now? prob not
 }
 
 __PACKAGE__->meta->make_immutable;

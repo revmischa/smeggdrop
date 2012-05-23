@@ -47,6 +47,10 @@ proc get_safe_interp {args} {
     return $our_last_safe_interp
 }
 
+proc export_proc_to_slave {fullname} {
+    [get_safe_interp] alias $fullname $fullname
+}
+
 proc safe_interp_eval {command} {
     global SInterp::safe_interp_is_safe
     set _interp [get_safe_interp]

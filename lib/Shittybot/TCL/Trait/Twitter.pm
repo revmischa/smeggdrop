@@ -1,7 +1,7 @@
 package Shittybot::TCL::Trait::Twitter;
 
 use Moose::Role;
-
+use feature 'say';
 use AnyEvent;
 use AnyEvent::Twitter;
 
@@ -35,15 +35,14 @@ sub _build_twitter_client {
     return $client;
 }
 
-after 'BUILD' => sub {
+after 'init_interp' => sub {
     my ($self) = @_;
 
-    $self->export_to_tcl(
-	namespace => 'twitter',
-	subs => {
-	    'post' => sub { $self->post_to_twitter(@_) },
-	},
-    );
+    $self->export_procs_to_slave(twitter => {
+	'post' => \&post_to_twitter,
+    });
+
+    say "Twitter trait initialized";
 };
 
 sub post_to_twitter {
