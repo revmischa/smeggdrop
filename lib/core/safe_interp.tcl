@@ -19,6 +19,7 @@ namespace eval SInterp {
 proc nick {} {return $context::nick}
 proc channel {} {return $context::channel}
 proc mask {} {return $context::mask}
+proc command {} {return $context::command}
 
 # I think this has to be in a namespace that we can't modify
 
@@ -41,6 +42,7 @@ proc get_safe_interp {args} {
 	$our_last_safe_interp alias nick nick
 	$our_last_safe_interp alias mask mask
 	$our_last_safe_interp alias channel channel
+	$our_last_safe_interp alias command command
 
         set safe_interp_is_safe 1
     }
