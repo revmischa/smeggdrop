@@ -164,7 +164,17 @@ sub init_slackbot {
                 my $nick = $self->slack_user_name($data->{user});
                 my $text = $data->{text};
 
-                if ($text && $text =~ /$trigger/) {
+                # ddx($data);
+
+                # is this in a watched channel
+                my $chans = $conf->{channels} || [];
+                unless ($chans && @$chans) {
+                    warn "Got a message on slack but not watching any channels";
+                    return;
+                }
+                my $is_watched_chan = grep { $_ eq $channel } @$chans;
+
+                if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
                     $code =~ s/$trigger//;
                     # say "Got trigger: [$trigger] $code";
@@ -201,6 +211,11 @@ sub slack_channel_name {
 sub send_slack_message {
     my ($self, $msg, $text) = @_;
 
+    return unless $text;
+
+    my $conf = $self->network_config;
+    my $icon_url = $conf->{icon_url};
+
     my $channel_id = $msg->{channel};
 
     $text =~ s/```/'''/smg;
@@ -214,6 +229,7 @@ sub send_slack_message {
             unfurl_media => 0,
             unfurl_links => 0,
             parse => 'none',
+            icon_url => $icon_url,
 
             attachments => encode_json([ {
                 title => "Eval: '$msg->{text}'",
@@ -238,7 +254,7 @@ sub handle_slack_message {
     my $text = $msg->{text};
 
     # maybe we shouldn't execute this?
-    return if $self->looks_shady($user, $tcl);
+    return if $self->looks_shady(undef, $tcl);
 
     # add log info to interperter call
     my $loglines = $self->slurp_chat_lines($channel);
@@ -329,7 +345,7 @@ sub slack_oauth2 {
         }
      
         my $res = $req->new_response(200); # new Plack::Response
-        $res->content('Auth success!') if $code;
+        $res->content("Auth success! Update your config:  $token_string") if $code;
         $res->finalize;
     });
 
