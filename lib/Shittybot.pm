@@ -140,7 +140,7 @@ sub init_slackbot {
 
     my $ws = AnyEvent::WebSocket::Client->new;
 
-    $self->slack_oauth2 or return;
+    $self->refresh_slack_oauth2 or return;
 
     # RTM.start
     my $res = $self->oauth2->post(
@@ -271,14 +271,22 @@ my $guard;
 sub slack_api {
     my ($self, $method, $args, $cb) = @_;
 
-    $self->refresh_slack_oauth2;
+    $self->refresh_slack_oauth2 unless $method =~ /^auth/;
 
     $cb ||= sub {};
     my $url = "https://slack.com/api/$method";
 
     my $res = $self->oauth2->post($url, $args);
     my $hdr = $res->headers;
-    $cb->($res->content, $hdr);
+    my $res_decoded;
+    try {
+        $res_decoded = decode_json($res->content);
+    } catch {
+        my ($err) = @_;
+        warn "Failed to decode slack API response: " .
+            $res->content . ": [$err]"; 
+    };
+    $cb->($res_decoded, $hdr);
 
     return;
 
@@ -343,16 +351,10 @@ sub send_slack_message {
             },
             sub {
                 my ($data, $hdr) = @_;
-                # warn "data: $data hdr: $hdr";
-                my $res_decoded = eval { decode_json($data) };
-                unless ($res_decoded) {
-                    warn "Failed to decode response: [$@] - $data";
-                    return;
-                }
-                unless ($res_decoded->{ok}) {
+                unless ($data->{ok}) {
                     warn "Posting failed: \n";
                     ddx($hdr);
-                    ddx($res_decoded);                    
+                    ddx($data);                    
                 }
             }
         );
@@ -360,6 +362,25 @@ sub send_slack_message {
         my $err = shift;
         warn "Error posting message: $err";
     };
+}
+
+sub save_oauth2_token_string {
+    my ($self, $tok_str) = @_;
+    my $netname = $self->network;
+    my $fh; open $fh, ">${netname}-oauth2-token" or die "Couldn't save token $!";
+    print $fh $tok_str;
+    close $fh;
+}
+
+sub load_oauth2_token_string {
+    my ($self) = @_;
+    my $netname = $self->network;
+    my $fh; open $fh, "${netname}-oauth2-token" or return;
+    local $/;
+    my $tok_str = <$fh>;
+    close $fh;
+    $self->got_oauth2_token_string($tok_str);
+    return $tok_str;
 }
 
 sub got_oauth2_token_string {
@@ -371,6 +392,7 @@ sub got_oauth2_token_string {
     die "JSON parse error: $parse_error" if $parse_error;
     my $access_token = $data->{access_token};
     $self->oauth2_access_token($access_token);
+    $self->save_oauth2_token_string($tok_str);
 }
 
 sub slack_oauth2 {
@@ -378,17 +400,13 @@ sub slack_oauth2 {
     my $conf = $self->network_config;
     my $client_id = $conf->{client_id} or die "OAuth client ID not configured";
     my $client_secret = $conf->{client_secret} or die "OAuth client secret not configured";
-    my $token_string = $conf->{oauth_token};
 
-    $self->got_oauth2_token_string($token_string) if $token_string;
+    my $token_string = $self->load_oauth2_token_string;
 
     my $oauth_wait_cv = AnyEvent->condvar;
 
     my $save_tokens = sub {
         my ($new_token_string) = @_;
-
-        say "\n\nGot OAuth2 token string:\n  $new_token_string";
-        say "(Save this in config under oauth_token)";
         $self->got_oauth2_token_string($new_token_string);
         $oauth_wait_cv->send;
     };
@@ -440,24 +458,33 @@ sub slack_oauth2 {
         }
      
         my $res = $req->new_response(200); # new Plack::Response
-        $res->content("Auth success! Update your config:  $token_string") if $code;
+        $res->content("Auth success!") if $code;
         $res->finalize;
     });
 
     $oauth_wait_cv->recv;
+    warn "shutting server down?";
+    undef $server;
     return 1;
 }
 
 sub refresh_slack_oauth2 {
     my ($self) = @_;
 
+    $self->slack_oauth2 unless $self->oauth2;
+
     if ($self->oauth2->should_refresh) {
         $self->slack_api("auth.test", {}, sub {
-            my ($res) = @_;
-            warn "res: $res";
+            my ($data) = @_;
+
+            unless ($data->{ok}) {
+                # need reauth
+                $self->slack_oauth2;
+            }
         });
-        # $self->slack_oauth2;
     }
+
+    return 1;
 }
 
 sub init_irc {
@@ -664,9 +691,8 @@ sub init_irc {
                 loglines => $loglines,
             );
 
-            $self->safe_eval($cmd_ctx, sub {
-
-                });
+            my ($cmd_res, $ok) = $self->versioned_eval($cmd_ctx);
+            $self->send_to_channel($chan, $cmd_res);
         } else {
             $txt = Encode::decode( 'utf8', $txt );
             $self->append_chat_line( $chan, $self->log_line($nick, $mask, $txt) );
