@@ -1,3 +1,4 @@
+requires 'Tcl' => '1.02';
 requires 'AnyEvent::IRC::Client';
 requires 'Time::Out';
 requires 'Moose';
