@@ -31,16 +31,16 @@ sub run {
     # spawn client for each network
     my @clients;
     while (my ($net, $net_conf) = each %$networks) {
-	my $client = Shittybot->new(
-	    network => $net,
-	    config => $config,
-	    network_config => $net_conf,
-	);
+        my $client = Shittybot->new(
+            network => $net,
+            config => $config,
+            network_config => $net_conf,
+        );
 
-	$client->init;
+        $client->init;
 
-	push @clients, $client;
-    }	
+        push @clients, $client;
+    }   
 }
 
 

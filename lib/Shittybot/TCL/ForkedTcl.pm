@@ -36,7 +36,7 @@ has 'initted' => (
 
 has 'tcl' => (
     is => 'ro',
-    isa => 'Shittybot::TCL',
+    # isa => 'Shittybot::TCL',
     required => 1,
     weak_ref => 1,
 );
@@ -61,9 +61,9 @@ sub init {
 
 	    my $res;
 	    if ($command eq "Eval") {
-		$res = $self->safe_eval($ctx);
+    		$res = $self->safe_eval($ctx);
 	    } else {
-		die "What is command: $command?";
+    		die "What is command: $command?";
 	    }
 
 	    return $res;

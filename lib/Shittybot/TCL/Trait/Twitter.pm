@@ -16,10 +16,15 @@ has 'twitter_screen_name' => (
     isa => 'Str',
 );
 
+has 'config' => (
+    is => 'rw',
+    isa => 'HashRef',
+);
+
 sub _build_twitter_client {
     my ($self) = @_;
 
-    my $config = $self->irc->config->{twitter}
+    my $config = $self->config->{twitter}
         or die "Trying to use Twitter trait but twitter config is missing";
     
     my $client = AnyEvent::Twitter->new(%$config);

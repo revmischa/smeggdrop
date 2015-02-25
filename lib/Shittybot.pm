@@ -1,21 +1,26 @@
 # overload the IRC::Client connect method to let us define a prebinding callback
 package Shittybot;
 
-use 5.01;
+use 5.016;
 
 use Shittybot::TCL;
+use Shittybot::Auth;
 
 use Moose;
-
 use Encode;
 use utf8;
-use Data::Dumper;
 use AnyEvent::IRC::Connection;
 use AnyEvent::IRC::Client;
 use AnyEvent::IRC::Util qw/prefix_nick prefix_user prefix_host/;
 use AnyEvent::Socket;
-use Shittybot::Auth;
+use AnyEvent::WebSocket::Client;
+use Twiggy::Server;
+use Plack::Request;
+use LWP::Authen::OAuth2;
+use JSON qw/decode_json encode_json/;
+
 use Data::Dump qw/ddx dump/;
+use Data::Dumper;
 
 BEGIN { extends 'AnyEvent::IRC::Client'; }
 
@@ -47,12 +52,39 @@ has 'network_config' => (
     required => 1,
 );
 
+# websocket client
+has 'ws' => (
+    is => 'rw',
+    isa => 'AnyEvent::WebSocket::Connection',
+);
+
+# oauth2 client
+has 'oauth2' => (
+    is => 'rw',
+    isa => 'LWP::Authen::OAuth2',
+);
+
+has 'oauth2_access_token' => (
+    is => 'rw',
+    isa => 'Str|Undef',
+);
+
+# slack realtime messaging state
+# see: https://api.slack.com/methods/rtm.start
+has 'rtm_state' => (
+    is => 'rw',
+    isa => 'HashRef',
+    default => sub { {} },
+);
+
 has 'tcl' => (
     is => 'ro',
-    isa => 'Shittybot::TCL',
+    # isa => 'Shittybot::TCL',
     lazy_build => 1,
     handles => [qw/ safe_eval /],
 );
+
+sub is_slack { $_[0]->network_config->{slack} }
 
 sub _build_tcl {
     my ($self) = @_;
@@ -66,8 +98,9 @@ sub _build_tcl {
 
     my $tcl = Shittybot::TCL->new_with_traits(
         state_path => $state_dir,
-        irc => $self,
+        config => $config,
         traits => \@traits,
+        irc => $self,
     );
 
     return $tcl;
@@ -76,11 +109,233 @@ sub _build_tcl {
 sub init {
     my ($self) = @_;
 
-    $self->init_irc;
+    if ($self->is_slack) {
+        $self->init_slackbot;
+    } else {
+        $self->init_irc;
+    }
     $self->init_tcl;
 }
 
 sub init_tcl { shift->tcl }
+
+# register websocket client for slack
+sub init_slackbot {
+    my ($self) = @_;
+
+    my $conf = $self->network_config;
+    my $trigger = $conf->{trigger};
+
+    my $api_token = $conf->{api_token} or die "Slack API token not configured";
+
+    my $ws = AnyEvent::WebSocket::Client->new;
+
+    $self->slack_oauth2 or return;
+
+    # RTM.start
+    my $res = $self->oauth2->post(
+        "https://slack.com/api/rtm.start", 
+        { token => $self->oauth2_access_token },
+    );
+
+    my $data = decode_json($res->content);
+    $self->rtm_state($data);
+    my $ws_url = $data->{url} or die "Didn't get websocket URL";
+
+    $ws->connect($ws_url)->cb(sub {
+        my $conn = eval { shift->recv };
+
+        if ($@) {
+            # handle error...
+            warn $@;
+            return;
+        }
+
+        $self->ws($conn);
+
+        $conn->on(each_message => sub {
+            # $message isa AnyEvent::WebSocket::Message
+            my ($connection, $message) = @_;
+            return unless $message->is_text;
+
+            my $data = decode_json($message->body);
+            if ($data->{type} eq 'message') {
+                my $channel = $self->slack_channel_name($data->{channel});
+                my $nick = $self->slack_user_name($data->{user});
+                my $text = $data->{text};
+
+                if ($text && $text =~ /$trigger/) {
+                    my $code = $text;
+                    $code =~ s/$trigger//;
+                    # say "Got trigger: [$trigger] $code";
+                    $self->handle_slack_message($connection, $data, $code);
+                } else {
+                    $text = Encode::decode('utf8', $text);
+                    $self->append_chat_line($channel, $self->log_line($nick, undef, $text) );
+                }
+            }
+        });
+    });
+}
+
+sub slack_user_name {
+    my ($self, $userid) = @_;
+    return unless $userid;
+    my $users = $self->rtm_state->{users};
+    foreach my $u (@$users) {
+        next unless $u->{id} eq $userid;
+        return $u->{name};
+    }
+}
+
+sub slack_channel_name {
+    my ($self, $chanid) = @_;
+    return unless $chanid;
+    my $channels = $self->rtm_state->{channels};
+    foreach my $c (@$channels) {
+        next unless $c->{id} eq $chanid;
+        return '#' . $c->{name};
+    }
+}
+
+sub send_slack_message {
+    my ($self, $msg, $text) = @_;
+
+    my $channel_id = $msg->{channel};
+
+    $text =~ s/```/'''/smg;
+
+    my $res = $self->oauth2->post(
+        "https://slack.com/api/chat.postMessage", 
+        {
+            token => $self->oauth2_access_token,
+            channel => $channel_id,
+            username => 'TclBot',
+            unfurl_media => 0,
+            unfurl_links => 0,
+            parse => 'none',
+
+            attachments => encode_json([ {
+                title => "Eval: '$msg->{text}'",
+                text => "```$text```",
+                fallback => $text,
+                color => 'good',
+
+                mrkdwn_in => [qw/ text /],
+            } ]),
+        },
+    );
+
+    # my $res_decoded = decode_json($res->content);
+    # ddx($res_decoded);
+}
+
+sub handle_slack_message {
+    my ($self, $connection, $msg, $tcl) = @_;
+
+    my $channel = $self->slack_channel_name($msg->{channel});
+    my $user = $self->slack_user_name($msg->{user});
+    my $text = $msg->{text};
+
+    # maybe we shouldn't execute this?
+    return if $self->looks_shady($user, $tcl);
+
+    # add log info to interperter call
+    my $loglines = $self->slurp_chat_lines($channel);
+    my $cmd_ctx = Shittybot::Command::Context->new(
+        nick => $user,
+        mask => undef,
+        channel => $channel,
+        command => $tcl,
+        loglines => $loglines,
+    );
+
+    $self->safe_eval($cmd_ctx, sub {
+        my ($ctx, $res) = @_;
+        $self->send_slack_message($msg, $res);
+    });
+}
+
+sub got_oauth2_token_string {
+    my ($self, $tok_str) = @_;
+    return unless $tok_str;
+
+    my $data = eval {decode_json($tok_str)};
+    my $parse_error = $@;
+    die "JSON parse error: $parse_error" if $parse_error;
+    my $access_token = $data->{access_token};
+    $self->oauth2_access_token($access_token);
+}
+
+sub slack_oauth2 {
+    my ($self) = @_;
+    my $conf = $self->network_config;
+    my $client_id = $conf->{client_id} or die "OAuth client ID not configured";
+    my $client_secret = $conf->{client_secret} or die "OAuth client secret not configured";
+    my $token_string = $conf->{oauth_token};
+
+    $self->got_oauth2_token_string($token_string) if $token_string;
+
+    my $oauth_wait_cv = AnyEvent->condvar;
+
+    my $save_tokens = sub {
+        my ($new_token_string) = @_;
+
+        say "\n\nGot OAuth2 token string:\n  $new_token_string";
+        say "(Save this in config under oauth_token)";
+        $self->got_oauth2_token_string($new_token_string);
+        $oauth_wait_cv->send;
+    };
+
+    my $oauth2 = LWP::Authen::OAuth2->new(
+        client_id => $client_id,
+        client_secret => $client_secret,
+        redirect_uri => "http://localhost:1488",
+
+        service_provider => 'Slack',
+        scope => "read,post,identify,client",
+
+        save_tokens => $save_tokens,
+        token_string => $token_string,
+    );
+    $self->oauth2($oauth2);
+
+    if ($token_string) {
+        #warn "okay. should_refresh: " . $oauth2->should_refresh;
+        return 1 unless $oauth2->should_refresh;
+    }
+
+    my $auth_url = $oauth2->authorization_url;
+    say "Complete OAuth2: $auth_url";
+
+    my $server = Twiggy::Server->new(
+        host => '0.0.0.0',
+        port => '1488',
+    );
+
+    $server->register_service(sub {
+        my $env = shift; # PSGI env
+     
+        my $req = Plack::Request->new($env);
+     
+        my $path_info = $req->path_info;
+        my $query     = $req->parameters;
+
+        my $code = $query->get('code');
+        if ($code) {
+            # get oauth tokens now
+            $oauth2->request_tokens(code => $code);
+            my $token_string = $oauth2->token_string;
+        }
+     
+        my $res = $req->new_response(200); # new Plack::Response
+        $res->content('Auth success!') if $code;
+        $res->finalize;
+    });
+
+    $oauth_wait_cv->recv;
+    return 1;
+}
 
 sub init_irc {
     my ($self) = @_;
@@ -94,6 +349,8 @@ sub init_irc {
     my $botreal    = $network_conf->{realname};
     my $botident   = $network_conf->{username};
     my $botserver  = $network_conf->{address};
+    my $botssl     = $network_conf->{ssl};
+    my $botpass    = $network_conf->{password};
     my $botport    = $network_conf->{port} || 6667;
     my $operuser   = $network_conf->{operuser};
     my $operpass   = $network_conf->{operpass};
@@ -123,7 +380,7 @@ sub init_irc {
     my $init;
     my $getNick;
 
-    ## getting it's nick back
+    ## getting its nick back
     $getNick = sub {
         my $nick = shift;
         # change your nick here
@@ -249,7 +506,8 @@ sub init_irc {
         my $from = $msg->{prefix};
 
         my $nick = prefix_nick($from);
-        my $mask = prefix_user($from)."@".prefix_host($from);
+        my $mask = prefix_user($from);
+        $mask .= "@".prefix_host($from) if prefix_host($from);
 
         if ($self->{auth}) {
             return if grep { $from =~ qr/$_/ } @{$self->{auth}->ignorelist};
@@ -275,15 +533,17 @@ sub init_irc {
 
             # add log info to interperter call
             my $loglines = $self->slurp_chat_lines($chan);
-	    my $cmd_ctx = Shittybot::Command::Context->new(
-		nick => $nick,
-		mask => $mask,
-		channel => $chan,
-		command => $code,
-		loglines => $loglines,
-	    );
+            my $cmd_ctx = Shittybot::Command::Context->new(
+                nick => $nick,
+                mask => $mask,
+                channel => $chan,
+                command => $code,
+                loglines => $loglines,
+            );
 
-            $self->safe_eval($cmd_ctx);
+            $self->safe_eval($cmd_ctx, sub {
+
+                });
         } else {
             $txt = Encode::decode( 'utf8', $txt );
             $self->append_chat_line( $chan, $self->log_line($nick, $mask, $txt) );
@@ -294,8 +554,9 @@ sub init_irc {
 
     $init = sub {
         $self->send_srv('PRIVMSG' => $nickserv, "identify $nickservpw") if defined $nickservpw;
-        $self->connect (
-            $botserver, $botport, { nick => $botnick, user => $botident, real => $botreal },
+        $self->enable_ssl if $botssl;
+        $self->connect(
+            $botserver, $botport, { nick => $botnick, user => $botident, real => $botreal, password => $botpass },
             sub {
                 my ($fh) = @_;
 
@@ -311,9 +572,17 @@ sub init_irc {
         foreach my $chan (@$channels) {
             next unless $chan;
 
+            # allow password
+            my ($chan_, $pass) = split(':', $chan);
+            $chan = $chan_ if $chan_;
+
             say "Joining $chan on " . $self->network;
 
-            $self->send_srv('JOIN', $chan);
+            if ($chan && $pass) {
+                $self->send_srv('JOIN', $chan, $pass);
+            } else {
+                $self->send_srv('JOIN', $chan);
+            }
 
             # ..You may have wanted to join #bla and the server
             # redirects that and sends you that you joined #blubb. You
@@ -331,19 +600,19 @@ sub connect {
     my ($self, $host, $port, $info, $pre) = @_;
 
     if (defined $info) {
-	$self->{register_cb_guard} = $self->reg_cb (
-	    ext_before_connect => sub {
-		my ($self, $err) = @_;
+    $self->{register_cb_guard} = $self->reg_cb (
+        ext_before_connect => sub {
+        my ($self, $err) = @_;
 
-		unless ($err) {
-		    $self->register(
-			$info->{nick}, $info->{user}, $info->{real}, $info->{password}
-		    );
-		}
+        unless ($err) {
+            $self->register(
+            $info->{nick}, $info->{user}, $info->{real}, $info->{password}
+            );
+        }
 
-		delete $self->{register_cb_guard};
-	    }
-	);
+        delete $self->{register_cb_guard};
+        }
+    );
     }
 
     AnyEvent::IRC::Connection::connect($self, $host, $port, $pre);
@@ -360,7 +629,8 @@ sub append_chat_line {
 
 # retrieve channel log chat lines (as an array ref)
 sub get_chat_lines {
-    my ( $self, $channel ) = @_;
+    my ($self, $channel) = @_;
+    return [] unless $channel;
     my $log = $self->logs->{$channel} || [];
     return $log;
 }
@@ -395,20 +665,25 @@ sub send_to_channel {
     $msg =~ s/[\000-\001]/ /g;
     $msg =~ s/\0777ACTION /\001ACTION /g;
 
-    my @lines = split  "\n" => $msg;
+    my @lines = split "\n" => $msg;
     my $limit = $self->network_config->{linelimit} || 20;
 
     # split lines if they are too long
     @lines = map { chunkby($_, 420) } @lines;
 
     if (@lines > $limit) {
-	my $n = @lines;
-	@lines = @lines[0..($limit-1)];
-	push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
+        my $n = @lines;
+        @lines = @lines[0..($limit-1)];
+        push @lines, "error: output truncated to ".($limit - 1)." of $n lines total"
     }
 
-    foreach my $line (@lines) {
-	$self->send_chan($chan, 'PRIVMSG', $chan, $line);
+    if ($self->is_slack) {
+        foreach my $line (@lines) {
+            $line =~ s/`/'/g;  # need to quote the line for monospace
+            $self->send_chan($chan, 'PRIVMSG', $chan, "`${line}`");
+        }
+    } else {
+        $self->send_chan($chan, 'PRIVMSG', $chan, $_) for @lines;
     }
 }
 
@@ -416,8 +691,8 @@ sub chunkby {
     my ($a,$len) = @_;
     my @out = ();
     while (length($a) > $len) {
-	push @out,substr($a, 0, $len);
-	$a = substr($a,$len);
+        push @out,substr($a, 0, $len);
+        $a = substr($a,$len);
     }
     push @out, $a if (defined $a);
     return @out;
@@ -434,6 +709,9 @@ sub looks_shady {
     return 1 if $code =~ /proc \w+ \{\} \{\}/i;
     return 1 if $code =~ /set \w+ \{\}/i;
     return 1 if $code =~ /lopl/i;
+
+    return 0 unless $from;
+
     return 1 if $from =~ /800A3C4E\.1B6ABF9\.8E35284E\.IP/;
     return 1 if $from =~ /org\.org/;
     return 1 if $from =~ /acidx.dj/;

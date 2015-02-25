@@ -81,7 +81,9 @@ sub load_index {
 
     my $index_fh;
     my $lines;
-    open($index_fh, "$state_path/$type/_index") or die $!;
+    my $index_path = "$state_path/$type/_index";
+    die "$index_path does not exist" unless -e $index_path;
+    open($index_fh, $index_path) or die $!;
     {
 	local $/;
 	$lines = <$index_fh>

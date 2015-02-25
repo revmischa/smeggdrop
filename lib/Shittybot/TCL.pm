@@ -93,9 +93,9 @@ sub reload_vars_and_procs {
     my ($self, $interp) = @_;
     # load saved procs/vars/meta
     my $loader = Shittybot::TCL::Loader->new(
-	interp => $interp,
-	state_path => $self->state_path,
-	indices => $self->indices,
+    interp => $interp,
+    state_path => $self->state_path,
+    indices => $self->indices,
     );
     $loader->load_state;
 }
@@ -108,8 +108,8 @@ sub _build_safe_interp {
 
     # create forkring tcl interpreter wrapper
     my $forker = Shittybot::TCL::ForkedTcl->new(
-	tcl => $self,
-	state_path => $self->state_path,
+    tcl => $self,
+    state_path => $self->state_path,
     );
 
     $FORKER = $forker;
@@ -141,7 +141,7 @@ sub init_interp {
 
 # safely evals a command and print the result in irc
 sub safe_eval {
-    my ($self, $ctx) = @_;
+    my ($self, $ctx, $cb) = @_;
 
     my $channel = $ctx->channel;
     my $nick = $ctx->nick;
@@ -149,18 +149,18 @@ sub safe_eval {
     my $ok = 0;
     my $res;
     try {
-	$res = $self->fork_eval($ctx);
-	$ok = 1;
+        $res = $self->fork_eval($ctx);
+        $ok = 1;
     } catch {
-	my ($err) = @_;
-	$err =~ s/(at lib.+)$//smg;
-	$self->irc->send_to_channel($channel, "$nick: Error evaluating: $err");
-	$ok = 0;
+        my ($err) = @_;
+        $err =~ s/(at lib.+)$//smg;
+        $cb->($ctx, "$nick: Error evaluating: $err");
+        $ok = 0;
     };
     
     return undef unless $ok;
 
-    $self->irc->send_to_channel($channel, $res);
+    $cb->($ctx, $res);
     return $res;
 }
 
@@ -192,19 +192,19 @@ sub _safe_eval {
     my $res;
     my $ok;
     try {
-	# export current command context as vars in the context:: namespace
-	$self->export_ctx_to_tcl($ctx);
+    # export current command context as vars in the context:: namespace
+    $self->export_ctx_to_tcl($ctx);
 
-	# safe_interp reads the current command from the exported context
-	$res = $self->Eval("safe_interp");
+    # safe_interp reads the current command from the exported context
+    $res = $self->Eval("safe_interp");
 
-	# didn't explode! score
-	$ok = 1;
+    # didn't explode! score
+    $ok = 1;
     } catch {
-	my ($err) = @_;
-	#$err =~ s/(at lib.+)$//smg;
-	$res = "Error: $err";
-	$ok = 0;
+    my ($err) = @_;
+    #$err =~ s/(at lib.+)$//smg;
+    $res = "Error: $err";
+    $ok = 0;
     };
 
     return ($res, $ok);
@@ -241,7 +241,7 @@ sub reload_state_if_necessary {
     my ($self) = @_;
     my $res = $self->Eval("SInterp::needs_state_reload");
     if ($res == 1) {
-	$self->init_interp($self->interp);
+    $self->init_interp($self->interp);
     }
 }
 
@@ -267,31 +267,31 @@ sub save {
     my $dir = $self->state_path . "/$category";
 
     while (my ($k, $v) = each %$data) {
-	my $sha1 = Digest::SHA1::sha1_hex($k);
+    my $sha1 = Digest::SHA1::sha1_hex($k);
 
-	# sanity check
-	my $current = $index->{$k};
-	if ($current && $current ne $sha1) {
-	    warn "Found value for $k in index but it was not what we expected! ($current != $sha1)";
-	    next;
-	}
+    # sanity check
+    my $current = $index->{$k};
+    if ($current && $current ne $sha1) {
+        warn "Found value for $k in index but it was not what we expected! ($current != $sha1)";
+        next;
+    }
 
-	# locate file
-	my $state_path = "$dir/$sha1";
-	my $state_fh;
-	unless (open($state_fh, ">", $state_path)) {
-	    warn "Failed to save $k: $!";
-	    next;
-	}
+    # locate file
+    my $state_path = "$dir/$sha1";
+    my $state_fh;
+    unless (open($state_fh, ">", $state_path)) {
+        warn "Failed to save $k: $!";
+        next;
+    }
 
-	# write current value
-	print $state_fh $v;
-	close($state_fh);
+    # write current value
+    print $state_fh $v;
+    close($state_fh);
 
-	warn "Updated $k in $state_path with '$v'\n";
+    warn "Updated $k in $state_path with '$v'\n";
 
-	# update index
-	$index->{$k} = $sha1;
+    # update index
+    $index->{$k} = $sha1;
     }
 
     $self->save_index($category, $index);
@@ -303,13 +303,13 @@ sub save_index {
     my $index_path = $self->state_path . "/$category/_index";
     my $fh;
     unless (open($fh, ">", $index_path)) {
-	warn "Error saving index: $!";
-	return;
+    warn "Error saving index: $!";
+    return;
     }
 
     # serialize index
     while (my ($k, $v) = each %$index) {
-	print $fh "{$k} $v\n";
+    print $fh "{$k} $v\n";
     }
 
     close($fh);
@@ -322,36 +322,36 @@ sub compare_states {
     my $changed = {};
 
     foreach my $category ('procs', 'vars') {
-	# can probably fold both of these into one method. left as an
-	# excersize for the reader.
+    # can probably fold both of these into one method. left as an
+    # excersize for the reader.
 
-	while (my ($k, $v) = each %{ $pre->{$category} }) {
-	    # skip context info
-	    next if index($k, 'context::') == 0;
+    while (my ($k, $v) = each %{ $pre->{$category} }) {
+        # skip context info
+        next if index($k, 'context::') == 0;
 
-	    my $post_v = $post->{$category}{$k};
+        my $post_v = $post->{$category}{$k};
 
-	    # did it change?
-	    next unless ( (! $v && $post_v) || ($v && ! $post_v) || $v ne $post_v );
+        # did it change?
+        next unless ( (! $v && $post_v) || ($v && ! $post_v) || $v ne $post_v );
 
-	    # $k changed from $v to $post_v
-	    $changed->{$category}{$k} = $post_v;
-	}
-	while (my ($k, $v) = each %{ $post->{$category} }) {
-	    # skip context info
-	    next if index($k, 'context::') == 0;
+        # $k changed from $v to $post_v
+        $changed->{$category}{$k} = $post_v;
+    }
+    while (my ($k, $v) = each %{ $post->{$category} }) {
+        # skip context info
+        next if index($k, 'context::') == 0;
 
-	    # already got this one?
-	    next if $changed->{$category}{$k};
+        # already got this one?
+        next if $changed->{$category}{$k};
 
-	    my $pre_v = $pre->{$category}{$k};
+        my $pre_v = $pre->{$category}{$k};
 
-	    # did it change?
-	    next unless ( (! $v && $pre_v) || ($v && ! $pre_v) || $v ne $pre_v );
+        # did it change?
+        next unless ( (! $v && $pre_v) || ($v && ! $pre_v) || $v ne $pre_v );
 
-	    # $k changed from $pre_v to $v
-	    $changed->{$category}{$k} = $v;
-	}
+        # $k changed from $pre_v to $v
+        $changed->{$category}{$k} = $v;
+    }
     }
 
     return $changed;
@@ -362,8 +362,8 @@ sub state {
     my ($self) = @_;
 
     return {
-	procs => $self->procs,
-	vars => $self->vars,
+    procs => $self->procs,
+    vars => $self->vars,
     };
 }
 
@@ -377,9 +377,9 @@ sub procs {
     my @proc_names = $interp->eval_in_safe('info procs');
 
     foreach my $proc (@proc_names) {
-	my $args = $interp->eval_in_safe("info args {$proc}");
-	my $body = $interp->eval_in_safe("info body {$proc}");
-	$res->{$proc} = "{$args} {$body}";
+    my $args = $interp->eval_in_safe("info args {$proc}");
+    my $body = $interp->eval_in_safe("info body {$proc}");
+    $res->{$proc} = "{$args} {$body}";
     }
 
     return $res;
@@ -394,13 +394,13 @@ sub vars {
     my @var_names = $interp->eval_in_safe('info vars');
 
     foreach my $var (@var_names) {
-	# is it an array?
-	my $is_array = $interp->eval_in_safe("array exists {$var}");
-	if ($is_array) {
-	    $res->{$var} = 'array {' . $interp->eval_in_safe("array get {$var}") . '}';
-	} else {
-	    $res->{$var} = 'scalar {' . $interp->eval_in_safe("set {$var}") . '}';
-	}
+    # is it an array?
+    my $is_array = $interp->eval_in_safe("array exists {$var}");
+    if ($is_array) {
+        $res->{$var} = 'array {' . $interp->eval_in_safe("array get {$var}") . '}';
+    } else {
+        $res->{$var} = 'scalar {' . $interp->eval_in_safe("set {$var}") . '}';
+    }
     }
 
     return $res;
@@ -413,8 +413,8 @@ sub context {
     my @vars_to_import = qw/channel nick mask command/;
     my %ctx;
     foreach my $var (@vars_to_import) {
-	my $val = $self->get_tcl_var('context::' . $var);
-	$ctx{$var} = $val;
+    my $val = $self->get_tcl_var('context::' . $var);
+    $ctx{$var} = $val;
     }
 
     return Shittybot::Command::Context->new(%ctx);
@@ -429,19 +429,19 @@ sub export_ctx_to_tcl {
     my %export_map;
     my $prefix = '';
     foreach my $var (@vars_to_export) {
-	my $val = $ctx->$var;
-	$val = '' unless defined $val;
-	
-	# this blows up on non-scalar refs. how to export arrays/hashes?
-	$export_map{$prefix . $var} = ref $val ? $val : \$val;
+        my $val = $ctx->$var;
+        $val = '' unless defined $val;
+        
+        # this blows up on non-scalar refs. how to export arrays/hashes?
+        $export_map{$prefix . $var} = ref $val ? $val : \$val;
     }
 
-    warn Dumper(\%export_map);
+    # warn Dumper(\%export_map);
 
     $self->export_to_tcl(
-	namespace => 'context',
-	subs => { stub => sub {} },  # if there are no subs, it won't create the namespace :(
-	vars => \%export_map,
+        namespace => 'context',
+        subs => { stub => sub {} },  # if there are no subs, it won't create the namespace :(
+        vars => \%export_map,
     );
 }
 
@@ -452,21 +452,21 @@ sub export_procs_to_slave {
 
     # alias from parent to slave
     while (my ($name, $cb) = each %$procs) {
-	# wrap callback to include $self
-	my $cb_wrapped = sub {
-	    $cb->($self, @_);
-	};
+    # wrap callback to include $self
+    my $cb_wrapped = sub {
+        $cb->($self, @_);
+    };
 
-	my $fullname = join('::', $namespace, $name);
-	say "Exporting $fullname builtin to slave";
+    my $fullname = join('::', $namespace, $name);
+    say "Exporting $fullname builtin to slave";
 
-	# export to parent interp
-	$self->export_to_tcl(
-	    namespace => $namespace,
-	    subs => { $name => $cb_wrapped },
-	);
+    # export to parent interp
+    $self->export_to_tcl(
+        namespace => $namespace,
+        subs => { $name => $cb_wrapped },
+    );
 
-	$self->Eval("export_proc_to_slave {$fullname}");
+    $self->Eval("export_proc_to_slave {$fullname}");
     }
 
     # delete from parent now? prob not
