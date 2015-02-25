@@ -173,13 +173,20 @@ sub init_slackbot {
 
             my $data = decode_json($message->body);
             if ($data->{type} eq 'message') {
-                # skip if from self
-                my $channel = $self->slack_channel_name($data->{channel});
+                my $channel = $data->{channel};
+
+                # edited message?
+                if ($data->{subtype} && $data->{subtype} eq 'message_changed') {
+                    $data = $data->{message};
+                    $data->{channel} = $channel;
+                }
+
+                $channel = $self->slack_channel_name($channel);
                 my $nick = $self->slack_user_name($data->{user}) || $data->{username};
                 my $text = $data->{text};
 
+                # skip if from self
                 return if $nick && $nick eq $conf->{nickname};
-                ddx($data);
 
                 # is this in a watched channel
                 my $chans = $conf->{channels} || [];
