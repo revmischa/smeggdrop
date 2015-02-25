@@ -1,3 +1,5 @@
+requires 'YAML::XS';
+requires 'MooseX::Traits';
 requires 'AnyEvent::IRC::Client';
 requires 'Time::Out';
 requires 'Moose';
@@ -11,3 +13,4 @@ requires 'AnyEvent::WebSocket::Client';
 requires 'Twiggy::Server';
 requires 'Plack';
 requires 'JSON';
+requires 'Data::Dump';

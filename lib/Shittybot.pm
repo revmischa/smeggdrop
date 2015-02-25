@@ -1,7 +1,7 @@
 # overload the IRC::Client connect method to let us define a prebinding callback
 package Shittybot;
 
-use 5.016;
+use 5.014;
 
 use Shittybot::TCL;
 use Shittybot::Auth;
