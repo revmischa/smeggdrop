@@ -17,7 +17,9 @@ use AnyEvent::WebSocket::Client;
 use Twiggy::Server;
 use Plack::Request;
 use LWP::Authen::OAuth2;
+use AnyEvent::HTTP;
 use JSON qw/decode_json encode_json/;
+use Try::Tiny;
 
 use Data::Dump qw/ddx dump/;
 use Data::Dumper;
@@ -33,6 +35,13 @@ has 'logs' => (
     lazy => 1,
     default => sub { {} },
 );
+
+# has 'ua' => (
+#     is => 'rw',
+#     isa => 'LWP::UserAgent',
+#     lazy => 1,
+#     default => sub { LWP::UserAgent->new },
+# );
 
 has 'config' => (
     is => 'ro',
@@ -81,7 +90,7 @@ has 'tcl' => (
     is => 'ro',
     # isa => 'Shittybot::TCL',
     lazy_build => 1,
-    handles => [qw/ safe_eval /],
+    handles => [qw/ safe_eval versioned_eval /],
 );
 
 sub is_slack { $_[0]->network_config->{slack} }
@@ -109,12 +118,13 @@ sub _build_tcl {
 sub init {
     my ($self) = @_;
 
+    $self->init_tcl;
+
     if ($self->is_slack) {
         $self->init_slackbot;
     } else {
         $self->init_irc;
     }
-    $self->init_tcl;
 }
 
 sub init_tcl { shift->tcl }
@@ -156,18 +166,25 @@ sub init_slackbot {
         $conn->on(each_message => sub {
             # $message isa AnyEvent::WebSocket::Message
             my ($connection, $message) = @_;
+
+            $self->refresh_slack_oauth2;
+
             return unless $message->is_text;
 
             my $data = decode_json($message->body);
             if ($data->{type} eq 'message') {
+                # skip if from self
                 my $channel = $self->slack_channel_name($data->{channel});
-                my $nick = $self->slack_user_name($data->{user});
+                my $nick = $self->slack_user_name($data->{user}) || $data->{username};
                 my $text = $data->{text};
 
-                # ddx($data);
+                return if $nick && $nick eq $conf->{nickname};
+                ddx($data);
 
                 # is this in a watched channel
                 my $chans = $conf->{channels} || [];
+                # ddx($chans);
+                # warn "chan: $channel";
                 unless ($chans && @$chans) {
                     warn "Got a message on slack but not watching any channels";
                     return;
@@ -177,13 +194,22 @@ sub init_slackbot {
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
                     $code =~ s/$trigger//;
-                    # say "Got trigger: [$trigger] $code";
+                    say "Got trigger: [$trigger] $code";
                     $self->handle_slack_message($connection, $data, $code);
                 } else {
                     $text = Encode::decode('utf8', $text);
                     $self->append_chat_line($channel, $self->log_line($nick, undef, $text) );
                 }
             }
+        });
+
+        $conn->on(finish => sub {
+            my ($connection) = @_;
+            warn "DISCONNECTED";
+
+            # not sure if this is the best way to reconnect
+            # recursion? ugh
+            $self->init_slackbot;
         });
     });
 }
@@ -208,44 +234,6 @@ sub slack_channel_name {
     }
 }
 
-sub send_slack_message {
-    my ($self, $msg, $text) = @_;
-
-    return unless $text;
-
-    my $conf = $self->network_config;
-    my $icon_url = $conf->{icon_url};
-
-    my $channel_id = $msg->{channel};
-
-    $text =~ s/```/'''/smg;
-
-    my $res = $self->oauth2->post(
-        "https://slack.com/api/chat.postMessage", 
-        {
-            token => $self->oauth2_access_token,
-            channel => $channel_id,
-            username => 'TclBot',
-            unfurl_media => 0,
-            unfurl_links => 0,
-            parse => 'none',
-            icon_url => $icon_url,
-
-            attachments => encode_json([ {
-                title => "Eval: '$msg->{text}'",
-                text => "```$text```",
-                fallback => $text,
-                color => 'good',
-
-                mrkdwn_in => [qw/ text /],
-            } ]),
-        },
-    );
-
-    # my $res_decoded = decode_json($res->content);
-    # ddx($res_decoded);
-}
-
 sub handle_slack_message {
     my ($self, $connection, $msg, $tcl) = @_;
 
@@ -254,7 +242,10 @@ sub handle_slack_message {
     my $text = $msg->{text};
 
     # maybe we shouldn't execute this?
-    return if $self->looks_shady(undef, $tcl);
+    if ($self->looks_shady(undef, $tcl)) {
+        warn "looks shady: $tcl";
+        return;
+    }
 
     # add log info to interperter call
     my $loglines = $self->slurp_chat_lines($channel);
@@ -266,10 +257,109 @@ sub handle_slack_message {
         loglines => $loglines,
     );
 
-    $self->safe_eval($cmd_ctx, sub {
-        my ($ctx, $res) = @_;
-        $self->send_slack_message($msg, $res);
-    });
+    my ($cmd_res, $ok) = $self->versioned_eval($cmd_ctx);
+    $self->send_slack_message($msg, $cmd_res, !$ok);
+
+    # $self->safe_eval($cmd_ctx, sub {
+    #     my ($ctx, $res) = @_;
+    #     warn "res: $res";
+    #     $self->send_slack_message($msg, $res);
+    # });
+}
+
+my $guard;
+sub slack_api {
+    my ($self, $method, $args, $cb) = @_;
+
+    $self->refresh_slack_oauth2;
+
+    $cb ||= sub {};
+    my $url = "https://slack.com/api/$method";
+
+    my $res = $self->oauth2->post($url, $args);
+    my $hdr = $res->headers;
+    $cb->($res->content, $hdr);
+
+    return;
+
+    $guard = http_request
+        POST => $url, 
+        %$args,
+        $cb;
+}
+
+sub send_slack_message {
+    my ($self, $msg, $text, $is_error) = @_;
+
+    my $conf = $self->network_config;
+    my $icon_url = $conf->{icon_url};
+    my $channel_id = $msg->{channel};
+
+    unless ($text) {
+        # empty
+        $self->slack_api(
+            "chat.postMessage", 
+            {
+                token => $self->oauth2_access_token,
+                channel => $channel_id,
+                username => 'TclBot',
+                icon_url => $icon_url,
+
+                attachments => encode_json([ {
+                    title => "Eval: '$msg->{text}'",
+                    text => "(No output)",
+                    color => 'danger',
+
+                    mrkdwn_in => [qw/ /],
+                } ]),
+            },
+        );
+        return;
+    }
+
+    $text =~ s/```/'''/smg;
+
+    try {
+        my $res = $self->slack_api(
+            "/chat.postMessage", 
+            {
+                token => $self->oauth2_access_token,
+                channel => $channel_id,
+                username => 'TclBot',
+                unfurl_media => 0,
+                unfurl_links => 0,
+                parse => 'none',
+                icon_url => $icon_url,
+
+                attachments => encode_json([ {
+                    title => "Eval: '$msg->{text}'",
+                    text => "```$text```",
+                    fallback => $text . '',
+                    color => ($is_error ? 'danger' : 'good'),
+                    parse => 'none',
+
+                    mrkdwn_in => [qw/ text /],
+                } ]),
+            },
+            sub {
+                my ($data, $hdr) = @_;
+                # warn "data: $data hdr: $hdr";
+                my $res_decoded = eval { decode_json($data) };
+                unless ($res_decoded) {
+                    warn "Failed to decode response: [$@] - $data";
+                    return;
+                }
+                unless ($res_decoded->{ok}) {
+                    warn "Posting failed: \n";
+                    ddx($hdr);
+                    ddx($res_decoded);                    
+                }
+            }
+        );
+    } catch {
+        my $err = shift;
+        warn "Error posting message: $err";
+    };
 }
 
 sub got_oauth2_token_string {
@@ -313,6 +403,11 @@ sub slack_oauth2 {
 
         save_tokens => $save_tokens,
         token_string => $token_string,
+
+        error_handler => sub {
+            my ($err) = @_;
+            warn "Got OAuth2 client error: $err";
+        },
     );
     $self->oauth2($oauth2);
 
@@ -351,6 +446,18 @@ sub slack_oauth2 {
 
     $oauth_wait_cv->recv;
     return 1;
+}
+
+sub refresh_slack_oauth2 {
+    my ($self) = @_;
+
+    if ($self->oauth2->should_refresh) {
+        $self->slack_api("auth.test", {}, sub {
+            my ($res) = @_;
+            warn "res: $res";
+        });
+        # $self->slack_oauth2;
+    }
 }
 
 sub init_irc {

@@ -154,7 +154,9 @@ sub safe_eval {
     } catch {
         my ($err) = @_;
         $err =~ s/(at lib.+)$//smg;
-        $cb->($ctx, "$nick: Error evaluating: $err");
+        $err = "$nick: Error evaluating: $err";
+        warn $err;
+        $cb->($ctx, $err);
         $ok = 0;
     };
     
@@ -192,19 +194,20 @@ sub _safe_eval {
     my $res;
     my $ok;
     try {
-    # export current command context as vars in the context:: namespace
-    $self->export_ctx_to_tcl($ctx);
+        # export current command context as vars in the context:: namespace
+        $self->export_ctx_to_tcl($ctx);
 
-    # safe_interp reads the current command from the exported context
-    $res = $self->Eval("safe_interp");
+        # safe_interp reads the current command from the exported context
+        $res = $self->Eval("safe_interp");
 
-    # didn't explode! score
-    $ok = 1;
+        # didn't explode! score
+        $ok = 1;
     } catch {
-    my ($err) = @_;
-    #$err =~ s/(at lib.+)$//smg;
-    $res = "Error: $err";
-    $ok = 0;
+        my ($err) = @_;
+        $err =~ s/(at lib.+)$//smg;
+        $err =~ s/(at \/.+ line \d+\.)$//smg;
+        $res = "Error: $err";
+        $ok = 0;
     };
 
     return ($res, $ok);
@@ -224,7 +227,7 @@ sub versioned_eval {
 
     $self->reload_state_if_necessary($pre_state);
 
-    return $res unless $ok;
+    return ($res, $ok) unless $ok;
 
     # get state after eval, compare with before state
     my $post_state = $self->state;
@@ -234,14 +237,14 @@ sub versioned_eval {
 
     $self->update_saved_state($changes);
 
-    return $res;
+    return ($res, $ok);
 }
 
 sub reload_state_if_necessary {
     my ($self) = @_;
     my $res = $self->Eval("SInterp::needs_state_reload");
     if ($res == 1) {
-    $self->init_interp($self->interp);
+        $self->init_interp($self->interp);
     }
 }
 

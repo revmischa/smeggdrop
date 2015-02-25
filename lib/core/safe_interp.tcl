@@ -38,11 +38,11 @@ proc get_safe_interp {args} {
         #interp limit $_interp command -value 1000  # max number of commands that can be executed
         #...
 
-	# export some procs to slave
-	$our_last_safe_interp alias nick nick
-	$our_last_safe_interp alias mask mask
-	$our_last_safe_interp alias channel channel
-	$our_last_safe_interp alias command command
+        # export some procs to slave
+        $our_last_safe_interp alias nick nick
+        $our_last_safe_interp alias mask mask
+        $our_last_safe_interp alias channel channel
+        $our_last_safe_interp alias command command
 
         set safe_interp_is_safe 1
     }
