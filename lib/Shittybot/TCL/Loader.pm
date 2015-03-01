@@ -44,7 +44,7 @@ sub load_state_object {
     # load data mapping from index and data files
     my $map = $self->load_index($type);
 
-    warn "Read " . (scalar(keys %$map)) . " $type from index...\n";
+    warn "Read " . (scalar(keys %$map)) . " $type from index... ";
     my $ok = 0;
     while (my ($name, $data) = each %$map) {
 	try {
@@ -69,7 +69,7 @@ sub load_state_object {
 	    warn "Failed to load $name: $err";
 	}
     }
-    warn "Installed $ok $type.\n";
+    warn "installed $ok $type.\n";
 }
 
 # loads a mapping of item => filename from disk
@@ -115,7 +115,8 @@ sub load_index {
 	close($data_fh);
 
 	unless ($data) {
-	    warn "Failed to load anything from $data_path";
+	    warn "Failed to load anything from $data_path. Deleting.\n";
+	    unlink $data_path;
 	    next;
 	}
 

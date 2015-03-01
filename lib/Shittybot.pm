@@ -20,6 +20,7 @@ use LWP::Authen::OAuth2;
 use AnyEvent::HTTP;
 use JSON qw/decode_json encode_json/;
 use Try::Tiny;
+use Carp qw/carp croak/;
 
 use Data::Dump qw/ddx dump/;
 use Data::Dumper;
@@ -65,6 +66,14 @@ has 'network_config' => (
 has 'ws' => (
     is => 'rw',
     isa => 'AnyEvent::WebSocket::Connection',
+);
+
+# Twigger HTTP server for OAuth2 redirect
+has 'httpd' => (
+    is => 'rw',
+    isa => 'Twiggy::Server',
+    predicate => 'has_httpd',
+    clearer => 'clear_httpd',
 );
 
 # oauth2 client
@@ -129,6 +138,22 @@ sub init {
 
 sub init_tcl { shift->tcl }
 
+# send a generic message
+sub channel_msg {
+    my ($self, $channel, $msg) = @_;
+
+    unless ($channel) {
+	carp "Attempted to send message to no channel";
+	return;
+    }
+
+    if ($self->is_slack) {
+	$self->slack_msg_chan($channel, $msg);
+    } else {
+	$self->irc->send_to_channel($channel, $msg);
+    }
+}
+
 # register websocket client for slack
 sub init_slackbot {
     my ($self) = @_;
@@ -172,6 +197,8 @@ sub init_slackbot {
             return unless $message->is_text;
 
             my $data = decode_json($message->body);
+	    # dump messages here:
+	    # ddx($data);
             if ($data->{type} eq 'message') {
                 my $channel = $data->{channel};
 
@@ -201,8 +228,8 @@ sub init_slackbot {
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
                     $code =~ s/$trigger//;
-                    say "Got trigger: [$trigger] $code";
-                    $self->handle_slack_message($connection, $data, $code);
+                    #say "Got trigger: [$trigger] $code";
+                    $self->handle_slack_eval($connection, $data, $code);
                 } else {
                     $text = Encode::decode('utf8', $text);
                     $self->append_chat_line($channel, $self->log_line($nick, undef, $text) );
@@ -241,12 +268,16 @@ sub slack_channel_name {
     }
 }
 
-sub handle_slack_message {
+sub handle_slack_eval {
     my ($self, $connection, $msg, $tcl) = @_;
 
-    my $channel = $self->slack_channel_name($msg->{channel});
+    my $channel_id = $msg->{channel};
+    my $channel = $self->slack_channel_name($channel_id);
     my $user = $self->slack_user_name($msg->{user});
     my $text = $msg->{text};
+
+    my $conf = $self->network_config;
+    my $icon_url = $conf->{icon_url};
 
     # maybe we shouldn't execute this?
     if ($self->looks_shady(undef, $tcl)) {
@@ -265,7 +296,47 @@ sub handle_slack_message {
     );
 
     my ($cmd_res, $ok) = $self->versioned_eval($cmd_ctx);
-    $self->send_slack_message($msg, $cmd_res, !$ok);
+
+    # reply
+    $cmd_res =~ s/```/'''/smg;
+    my @attachments;
+    my %reply_msg = (
+	channel => $channel_id,
+	username => 'TclBot',
+	icon_url => $icon_url,
+	unfurl_media => 0,
+	unfurl_links => 0,
+	parse => 'none',
+    );
+
+    if ($ok) {
+	# eval success
+	$cmd_res ||= '(No output)';
+	push @attachments, {
+	    title => "Eval: '$msg->{text}'",
+	    text => "```$cmd_res```",
+	    fallback => $cmd_res . '',
+	    color => 'good',
+	    parse => 'none',
+
+	    mrkdwn_in => [qw/ text /],
+	};
+    } else {
+	# eval error?
+	unless ($cmd_res) {
+	    warn "No eval response for $msg->{text}";
+	    return;
+	}
+	push @attachments, {
+	    title => "Eval error: '$msg->{text}'",
+	    text => "Error: $cmd_res",
+	    color => 'danger',
+	    parse => 'none',
+	};
+    }
+
+    $reply_msg{attachments} = encode_json(\@attachments) if @attachments;
+    $self->send_slack_msg(\%reply_msg);
 
     # $self->safe_eval($cmd_ctx, sub {
     #     my ($ctx, $res) = @_;
@@ -279,6 +350,9 @@ sub slack_api {
     my ($self, $method, $args, $cb) = @_;
 
     $self->refresh_slack_oauth2 unless $method =~ /^auth/;
+
+    $args ||= {};
+    $args->{token} ||= $self->oauth2_access_token;
 
     $cb ||= sub {};
     my $url = "https://slack.com/api/$method";
@@ -303,59 +377,32 @@ sub slack_api {
         $cb;
 }
 
-sub send_slack_message {
-    my ($self, $msg, $text, $is_error) = @_;
+# send a message to a channel
+sub slack_msg_chan {
+    my ($self, $channel_id, $text, $opts) = @_;
 
-    my $conf = $self->network_config;
-    my $icon_url = $conf->{icon_url};
-    my $channel_id = $msg->{channel};
+    $opts ||= {};
 
-    unless ($text) {
-        # empty
-        $self->slack_api(
-            "chat.postMessage", 
-            {
-                token => $self->oauth2_access_token,
-                channel => $channel_id,
-                username => 'TclBot',
-                icon_url => $icon_url,
+    my %msg = (
+	channel => $channel_id,
+	text => $text,
+	%$opts,
+    );
+    $self->send_slack_msg(\%msg);
+}
 
-                attachments => encode_json([ {
-                    title => "Eval: '$msg->{text}'",
-                    text => "(No output)",
-                    color => 'danger',
+# send a generic slack message
+# msg is a hashref of params to chat.postMessage
+sub send_slack_msg {
+    my ($self, $msg) = @_;
 
-                    mrkdwn_in => [qw/ /],
-                } ]),
-            },
-        );
-        return;
-    }
-
-    $text =~ s/```/'''/smg;
+    # don't do anything if we're in the middle of an OAuth2 session thing
+    return if $self->has_httpd;
 
     try {
         my $res = $self->slack_api(
-            "/chat.postMessage", 
-            {
-                token => $self->oauth2_access_token,
-                channel => $channel_id,
-                username => 'TclBot',
-                unfurl_media => 0,
-                unfurl_links => 0,
-                parse => 'none',
-                icon_url => $icon_url,
-
-                attachments => encode_json([ {
-                    title => "Eval: '$msg->{text}'",
-                    text => "```$text```",
-                    fallback => $text . '',
-                    color => ($is_error ? 'danger' : 'good'),
-                    parse => 'none',
-
-                    mrkdwn_in => [qw/ text /],
-                } ]),
-            },
+            "/chat.postMessage",
+	    $msg,
             sub {
                 my ($data, $hdr) = @_;
                 unless ($data->{ok}) {
@@ -404,6 +451,10 @@ sub got_oauth2_token_string {
 
 sub slack_oauth2 {
     my ($self) = @_;
+
+    # are we already waiting?
+    return if $self->has_httpd;
+
     my $conf = $self->network_config;
     my $client_id = $conf->{client_id} or die "OAuth client ID not configured";
     my $client_secret = $conf->{client_secret} or die "OAuth client secret not configured";
@@ -415,13 +466,20 @@ sub slack_oauth2 {
     my $save_tokens = sub {
         my ($new_token_string) = @_;
         $self->got_oauth2_token_string($new_token_string);
+	say "OAuth2 completed successfully.";
         $oauth_wait_cv->send;
     };
+
+    my $oc = $self->config->{oauth2} || {};
+    my $hostname = $oc->{hostname} || 'localhost';
+    my $port = $oc->{port} || 1488;
+    my $redir = "http://$hostname:$port";
+#    warn $redir;
 
     my $oauth2 = LWP::Authen::OAuth2->new(
         client_id => $client_id,
         client_secret => $client_secret,
-        redirect_uri => "http://localhost:1488",
+        redirect_uri => $redir,
 
         service_provider => 'Slack',
         scope => "read,post,identify,client",
@@ -444,10 +502,12 @@ sub slack_oauth2 {
     my $auth_url = $oauth2->authorization_url;
     say "Complete OAuth2: $auth_url";
 
+    $self->stop_httpd;
     my $server = Twiggy::Server->new(
         host => '0.0.0.0',
-        port => '1488',
+        port => $port,
     );
+    $self->httpd($server);
 
     $server->register_service(sub {
         my $env = shift; # PSGI env
@@ -470,9 +530,16 @@ sub slack_oauth2 {
     });
 
     $oauth_wait_cv->recv;
-    warn "shutting server down?";
-    undef $server;
+    $self->stop_httpd;
     return 1;
+}
+
+sub stop_httpd {
+    my ($self) = @_;
+
+    return unless $self->has_httpd;
+    $self->httpd->{exit_guard}->end;
+    $self->clear_httpd;
 }
 
 sub refresh_slack_oauth2 {

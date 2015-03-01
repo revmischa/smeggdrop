@@ -172,7 +172,7 @@ sub reply {
 
     my $context = $self->context;
     my $chan = $context->channel or die "Failed to find current context channel";
-    $self->irc->send_to_channel($chan => "@msg");
+    $self->channel_msg($chan => "@msg");
 
     return;
 }
