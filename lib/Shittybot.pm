@@ -198,14 +198,15 @@ sub init_slackbot {
 
             my $data = decode_json($message->body);
 	    # dump messages here:
-	    # ddx($data);
+	    #ddx($data);
             if ($data->{type} eq 'message') {
+		my $channel_raw = $data->{channel};
                 my $channel = $data->{channel};
 
                 # edited message?
                 if ($data->{subtype} && $data->{subtype} eq 'message_changed') {
                     $data = $data->{message};
-                    $data->{channel} = $channel;
+                    $data->{channel} = $channel_raw = $channel;
                 }
 
                 $channel = $self->slack_channel_name($channel);
@@ -223,7 +224,7 @@ sub init_slackbot {
                     warn "Got a message on slack but not watching any channels";
                     return;
                 }
-                my $is_watched_chan = grep { $_ eq $channel } @$chans;
+                my $is_watched_chan = grep { $_ eq $channel or $_ eq $channel_raw } @$chans;
 
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
