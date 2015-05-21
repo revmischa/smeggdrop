@@ -47,27 +47,27 @@ sub load_state_object {
     warn "Read " . (scalar(keys %$map)) . " $type from index... ";
     my $ok = 0;
     while (my ($name, $data) = each %$map) {
-	try {
-	    if ($type eq 'vars') {
-		my ($kind, $val) = split(' ', $data, 2);
-		if ($kind eq 'scalar') {
-		    $self->interp->eval_in_safe("set {$name} $val", Tcl::EVAL_GLOBAL);
-		} elsif ($kind eq 'array') {
-		    $self->interp->eval_in_safe("array set {$name} $val", Tcl::EVAL_GLOBAL);
-		} else {
-		    die "unknown saved var type $kind";
-		}
-	    } elsif ($type eq 'procs') {
-		$self->interp->eval_in_safe("proc {$name} $data");
-	    } else {
-		die "wtf";
-	    }
+    try {
+        if ($type eq 'vars') {
+            my ($kind, $val) = split(' ', $data, 2);
+            if ($kind eq 'scalar') {
+                $self->interp->eval_in_safe("set {$name} $val", Tcl::EVAL_GLOBAL);
+            } elsif ($kind eq 'array') {
+                $self->interp->eval_in_safe("array set {$name} $val", Tcl::EVAL_GLOBAL);
+            } else {
+                die "unknown saved var type $kind";
+            }
+            } elsif ($type eq 'procs') {
+                $self->interp->eval_in_safe("proc {$name} $data");
+            } else {
+                die "wtf";
+            }
 
-	    $ok++;
-	} catch {
-	    my ($err) = @_;
-	    warn "Failed to load $name: $err";
-	}
+            $ok++;
+        } catch {
+            my ($err) = @_;
+            warn "Failed to load $name: $err";
+        }
     }
     warn "installed $ok $type.\n";
 }
@@ -85,8 +85,8 @@ sub load_index {
     die "$index_path does not exist" unless -e $index_path;
     open($index_fh, $index_path) or die $!;
     {
-	local $/;
-	$lines = <$index_fh>
+        local $/;
+        $lines = <$index_fh>
     }
     close($index_fh);
 
@@ -100,27 +100,27 @@ sub load_index {
     # TODO: asynchrify this for massively improved loading time plz
     my $ret = {};
     while (my ($name, $sha1) = each %index) {
-	my $data_fh;
-	my $data_path = "$state_path/$type/$sha1";
-	unless (open($data_fh, $data_path)) {
-	    warn "Failed to load $name from state: $!";
-	    next;
-	}
+        my $data_fh;
+        my $data_path = "$state_path/$type/$sha1";
+        unless (open($data_fh, $data_path)) {
+            warn "Failed to load $name from state: $!";
+            next;
+        }
 
-	my $data;
-	{
-	    local $/;
-	    $data = <$data_fh>;
-	}
-	close($data_fh);
+        my $data;
+        {
+            local $/;
+            $data = <$data_fh>;
+        }
+        close($data_fh);
 
-	unless ($data) {
-	    warn "Failed to load anything from $data_path. Deleting.\n";
-	    unlink $data_path;
-	    next;
-	}
+        unless ($data) {
+            warn "Failed to load anything from $data_path. Deleting.\n";
+            unlink $data_path;
+            next;
+        }
 
-	$ret->{$name} = $data;
+        $ret->{$name} = $data;
     }
 
     return $ret;

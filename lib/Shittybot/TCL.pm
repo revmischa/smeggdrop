@@ -89,13 +89,44 @@ sub _build_interp {
     return $interp;
 }
 
+# evaluates $command, tracking changes to vars and procs
+sub versioned_eval {
+    my ($self, $tcl) = @_;
+
+    # save state before eval
+    my $pre_state = $self->state;
+
+    # evaluate tcl in interpreter
+    my ($res, $ok) = $self->_safe_eval($tcl);
+
+    # return err msg on failure
+
+    $self->reload_state_if_necessary($pre_state);
+
+    return ($res, $ok) unless $ok;
+
+    # get state after eval, compare with before state
+    my $post_state = $self->state;
+
+    # compare before and after state
+    my $changes = $self->compare_states($pre_state, $post_state);
+
+    $self->update_saved_state($changes);
+
+    return ($res, $ok);
+}
+
+
+#####
+
+
 sub reload_vars_and_procs {
     my ($self, $interp) = @_;
     # load saved procs/vars/meta
     my $loader = Shittybot::TCL::Loader->new(
-    interp => $interp,
-    state_path => $self->state_path,
-    indices => $self->indices,
+        interp => $interp,
+        state_path => $self->state_path,
+        indices => $self->indices,
     );
     $loader->load_state;
 }
@@ -108,8 +139,8 @@ sub _build_safe_interp {
 
     # create forkring tcl interpreter wrapper
     my $forker = Shittybot::TCL::ForkedTcl->new(
-    tcl => $self,
-    state_path => $self->state_path,
+        tcl => $self,
+        state_path => $self->state_path,
     );
 
     $FORKER = $forker;
@@ -172,6 +203,7 @@ sub reply {
 
     my $context = $self->context;
     my $chan = $context->channel or die "Failed to find current context channel";
+    warn "chan: $chan, msg: @msg";
     $self->channel_msg($chan => "@msg");
 
     return;
@@ -209,33 +241,6 @@ sub _safe_eval {
         $res = "Error: $err";
         $ok = 0;
     };
-
-    return ($res, $ok);
-}
-
-# evaluates $command, tracking changes to vars and procs
-sub versioned_eval {
-    my ($self, $command) = @_;
-
-    # save state before eval
-    my $pre_state = $self->state;
-
-    # evaluate command in tcl interpreter
-    my ($res, $ok) = $self->_safe_eval($command);
-
-    # return err msg on failure
-
-    $self->reload_state_if_necessary($pre_state);
-
-    return ($res, $ok) unless $ok;
-
-    # get state after eval, compare with before state
-    my $post_state = $self->state;
-
-    # compare before and after state
-    my $changes = $self->compare_states($pre_state, $post_state);
-
-    $self->update_saved_state($changes);
 
     return ($res, $ok);
 }
@@ -455,21 +460,21 @@ sub export_procs_to_slave {
 
     # alias from parent to slave
     while (my ($name, $cb) = each %$procs) {
-    # wrap callback to include $self
-    my $cb_wrapped = sub {
-        $cb->($self, @_);
-    };
+        # wrap callback to include $self
+        my $cb_wrapped = sub {
+            $cb->($self, @_);
+        };
 
-    my $fullname = join('::', $namespace, $name);
-    say "Exporting $fullname builtin to slave";
+        my $fullname = join('::', $namespace, $name);
+        say "Exporting $fullname builtin to slave";
 
-    # export to parent interp
-    $self->export_to_tcl(
-        namespace => $namespace,
-        subs => { $name => $cb_wrapped },
-    );
+        # export to parent interp
+        $self->export_to_tcl(
+            namespace => $namespace,
+            subs => { $name => $cb_wrapped },
+        );
 
-    $self->Eval("export_proc_to_slave {$fullname}");
+        $self->Eval("export_proc_to_slave {$fullname}");
     }
 
     # delete from parent now? prob not

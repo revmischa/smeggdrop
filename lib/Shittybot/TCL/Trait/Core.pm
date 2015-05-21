@@ -9,8 +9,8 @@ after 'init_interp' => sub {
     my ($self) = @_;
 
     $self->export_procs_to_slave(core => {
-	'say' => \&say,
-	'sha1' => \&sha1_hex,
+        'saychan' => \&say,
+        'sha1' => \&sha1_hex,
     });
 };
 
@@ -18,7 +18,9 @@ after 'init_interp' => sub {
 sub say {
     my ($self, @args) = @_;
 
-    $self->reply(@args);
+    return "you said: @args";
+
+    $self->reply("args: @args");
     return;
 }
 
