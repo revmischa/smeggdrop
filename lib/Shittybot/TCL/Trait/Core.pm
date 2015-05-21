@@ -18,8 +18,6 @@ after 'init_interp' => sub {
 sub say {
     my ($self, @args) = @_;
 
-    return "you said: @args";
-
     $self->reply("args: @args");
     return;
 }

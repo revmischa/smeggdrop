@@ -275,31 +275,31 @@ sub save {
     my $dir = $self->state_path . "/$category";
 
     while (my ($k, $v) = each %$data) {
-    my $sha1 = Digest::SHA1::sha1_hex($k);
+        my $sha1 = Digest::SHA1::sha1_hex($k);
 
-    # sanity check
-    my $current = $index->{$k};
-    if ($current && $current ne $sha1) {
-        warn "Found value for $k in index but it was not what we expected! ($current != $sha1)";
-        next;
-    }
+        # sanity check
+        my $current = $index->{$k};
+        if ($current && $current ne $sha1) {
+            warn "Found value for $k in index but it was not what we expected! ($current != $sha1)";
+            next;
+        }
 
-    # locate file
-    my $state_path = "$dir/$sha1";
-    my $state_fh;
-    unless (open($state_fh, ">", $state_path)) {
-        warn "Failed to save $k: $!";
-        next;
-    }
+        # locate file
+        my $state_path = "$dir/$sha1";
+        my $state_fh;
+        unless (open($state_fh, ">", $state_path)) {
+            warn "Failed to save $k: $!";
+            next;
+        }
 
-    # write current value
-    print $state_fh $v;
-    close($state_fh);
+        # write current value
+        print $state_fh $v;
+        close($state_fh);
 
-    warn "Updated $k in $state_path with '$v'\n";
+        warn "Updated $k in $state_path with '$v'\n";
 
-    # update index
-    $index->{$k} = $sha1;
+        # update index
+        $index->{$k} = $sha1;
     }
 
     $self->save_index($category, $index);
@@ -311,13 +311,13 @@ sub save_index {
     my $index_path = $self->state_path . "/$category/_index";
     my $fh;
     unless (open($fh, ">", $index_path)) {
-    warn "Error saving index: $!";
-    return;
+        warn "Error saving index: $!";
+        return;
     }
 
     # serialize index
     while (my ($k, $v) = each %$index) {
-    print $fh "{$k} $v\n";
+        print $fh "{$k} $v\n";
     }
 
     close($fh);
@@ -370,8 +370,8 @@ sub state {
     my ($self) = @_;
 
     return {
-    procs => $self->procs,
-    vars => $self->vars,
+        procs => $self->procs,
+        vars => $self->vars,
     };
 }
 
@@ -385,9 +385,9 @@ sub procs {
     my @proc_names = $interp->eval_in_safe('info procs');
 
     foreach my $proc (@proc_names) {
-    my $args = $interp->eval_in_safe("info args {$proc}");
-    my $body = $interp->eval_in_safe("info body {$proc}");
-    $res->{$proc} = "{$args} {$body}";
+        my $args = $interp->eval_in_safe("info args {$proc}");
+        my $body = $interp->eval_in_safe("info body {$proc}");
+        $res->{$proc} = "{$args} {$body}";
     }
 
     return $res;
@@ -402,13 +402,13 @@ sub vars {
     my @var_names = $interp->eval_in_safe('info vars');
 
     foreach my $var (@var_names) {
-    # is it an array?
-    my $is_array = $interp->eval_in_safe("array exists {$var}");
-    if ($is_array) {
-        $res->{$var} = 'array {' . $interp->eval_in_safe("array get {$var}") . '}';
-    } else {
-        $res->{$var} = 'scalar {' . $interp->eval_in_safe("set {$var}") . '}';
-    }
+        # is it an array?
+        my $is_array = $interp->eval_in_safe("array exists {$var}");
+        if ($is_array) {
+            $res->{$var} = 'array {' . $interp->eval_in_safe("array get {$var}") . '}';
+        } else {
+            $res->{$var} = 'scalar {' . $interp->eval_in_safe("set {$var}") . '}';
+        }
     }
 
     return $res;
@@ -421,8 +421,8 @@ sub context {
     my @vars_to_import = qw/channel nick mask command/;
     my %ctx;
     foreach my $var (@vars_to_import) {
-    my $val = $self->get_tcl_var('context::' . $var);
-    $ctx{$var} = $val;
+        my $val = $self->get_tcl_var('context::' . $var);
+        $ctx{$var} = $val;
     }
 
     return Shittybot::Command::Context->new(%ctx);
