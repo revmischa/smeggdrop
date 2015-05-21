@@ -143,14 +143,14 @@ sub channel_msg {
     my ($self, $channel, $msg) = @_;
 
     unless ($channel) {
-	carp "Attempted to send message to no channel";
-	return;
+        carp "Attempted to send message to no channel";
+        return;
     }
 
     if ($self->is_slack) {
-	$self->slack_msg_chan($channel, $msg);
+        $self->slack_msg_chan($channel, $msg);
     } else {
-	$self->irc->send_to_channel($channel, $msg);
+        $self->irc->send_to_channel($channel, $msg);
     }
 }
 
@@ -197,10 +197,10 @@ sub init_slackbot {
             return unless $message->is_text;
 
             my $data = decode_json($message->body);
-	    # dump messages here:
-	    #ddx($data);
+        # dump messages here:
+        #ddx($data);
             if ($data->{type} eq 'message') {
-		my $channel_raw = $data->{channel};
+        my $channel_raw = $data->{channel};
                 my $channel = $data->{channel};
 
                 # edited message?
@@ -302,38 +302,38 @@ sub handle_slack_eval {
     $cmd_res =~ s/```/'''/smg;
     my @attachments;
     my %reply_msg = (
-	channel => $channel_id,
-	username => 'TclBot',
-	icon_url => $icon_url,
-	unfurl_media => 0,
-	unfurl_links => 0,
-	parse => 'none',
+    channel => $channel_id,
+    username => 'TclBot',
+    icon_url => $icon_url,
+    unfurl_media => 0,
+    unfurl_links => 0,
+    parse => 'none',
     );
 
     if ($ok) {
-	# eval success
-	$cmd_res ||= '(No output)';
-	push @attachments, {
-	    title => "Eval: '$msg->{text}'",
-	    text => "```$cmd_res```",
-	    fallback => $cmd_res . '',
-	    color => 'good',
-	    parse => 'none',
+    # eval success
+    $cmd_res ||= '(No output)';
+    push @attachments, {
+        title => "Eval: '$msg->{text}'",
+        text => "```$cmd_res```",
+        fallback => $cmd_res . '',
+        color => 'good',
+        parse => 'none',
 
-	    mrkdwn_in => [qw/ text /],
-	};
+        mrkdwn_in => [qw/ text /],
+    };
     } else {
-	# eval error?
-	unless ($cmd_res) {
-	    warn "No eval response for $msg->{text}";
-	    return;
-	}
-	push @attachments, {
-	    title => "Eval error: '$msg->{text}'",
-	    text => "Error: $cmd_res",
-	    color => 'danger',
-	    parse => 'none',
-	};
+    # eval error?
+    unless ($cmd_res) {
+        warn "No eval response for $msg->{text}";
+        return;
+    }
+    push @attachments, {
+        title => "Eval error: '$msg->{text}'",
+        text => "Error: $cmd_res",
+        color => 'danger',
+        parse => 'none',
+    };
     }
 
     $reply_msg{attachments} = encode_json(\@attachments) if @attachments;
@@ -385,9 +385,9 @@ sub slack_msg_chan {
     $opts ||= {};
 
     my %msg = (
-	channel => $channel_id,
-	text => $text,
-	%$opts,
+    channel => $channel_id,
+    text => $text,
+    %$opts,
     );
     $self->send_slack_msg(\%msg);
 }
@@ -403,7 +403,7 @@ sub send_slack_msg {
     try {
         my $res = $self->slack_api(
             "/chat.postMessage",
-	    $msg,
+        $msg,
             sub {
                 my ($data, $hdr) = @_;
                 unless ($data->{ok}) {
@@ -467,7 +467,7 @@ sub slack_oauth2 {
     my $save_tokens = sub {
         my ($new_token_string) = @_;
         $self->got_oauth2_token_string($new_token_string);
-	say "OAuth2 completed successfully.";
+    say "OAuth2 completed successfully.";
         $oauth_wait_cv->send;
     };
 
