@@ -9,7 +9,7 @@ after 'init_interp' => sub {
     my ($self) = @_;
 
     $self->export_procs_to_slave(core => {
-        'saychan' => \&say,
+        'say' => \&say,
         'sha1' => \&sha1_hex,
     });
 };

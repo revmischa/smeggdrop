@@ -302,38 +302,38 @@ sub handle_slack_eval {
     $cmd_res =~ s/```/'''/smg;
     my @attachments;
     my %reply_msg = (
-    channel => $channel_id,
-    username => 'TclBot',
-    icon_url => $icon_url,
-    unfurl_media => 0,
-    unfurl_links => 0,
-    parse => 'none',
+        channel => $channel_id,
+        username => 'TclBot',
+        icon_url => $icon_url,
+        unfurl_media => 0,
+        unfurl_links => 0,
+        parse => 'none',
     );
 
     if ($ok) {
-    # eval success
-    $cmd_res ||= '(No output)';
-    push @attachments, {
-        title => "Eval: '$msg->{text}'",
-        text => "```$cmd_res```",
-        fallback => $cmd_res . '',
-        color => 'good',
-        parse => 'none',
+        # eval success
+        $cmd_res ||= '(No output)' if defined $cmd_res;
+        push @attachments, {
+            title => "Eval: '$msg->{text}'",
+            text => "```$cmd_res```",
+            fallback => $cmd_res . '',
+            color => 'good',
+            parse => 'none',
 
-        mrkdwn_in => [qw/ text /],
-    };
+            mrkdwn_in => [qw/ text /],
+        };
     } else {
-    # eval error?
-    unless ($cmd_res) {
-        warn "No eval response for $msg->{text}";
-        return;
-    }
-    push @attachments, {
-        title => "Eval error: '$msg->{text}'",
-        text => "Error: $cmd_res",
-        color => 'danger',
-        parse => 'none',
-    };
+        # eval error?
+        unless ($cmd_res) {
+            warn "No eval response for $msg->{text}";
+            return;
+        }
+        push @attachments, {
+            title => "Eval error: '$msg->{text}'",
+            text => "Error: $cmd_res",
+            color => 'danger',
+            parse => 'none',
+        };
     }
 
     $reply_msg{attachments} = encode_json(\@attachments) if @attachments;

@@ -35,6 +35,7 @@ has 'irc' => (
     is => 'ro',
     isa => 'Shittybot',
     required => 1,
+    handles => [qw/ channel_msg /],
 );
 
 # the actual TCL interpreter
@@ -462,7 +463,10 @@ sub export_procs_to_slave {
     while (my ($name, $cb) = each %$procs) {
         # wrap callback to include $self
         my $cb_wrapped = sub {
-            $cb->($self, @_);
+            my $ret = $cb->($self, @_);
+            return $ret;
+            return $ret if defined($ret);
+            return "";
         };
 
         my $fullname = join('::', $namespace, $name);
