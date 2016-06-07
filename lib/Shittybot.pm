@@ -62,6 +62,8 @@ has 'network_config' => (
     required => 1,
 );
 
+has 'should_reconnect' => ( is => 'rw', isa => 'Bool', default => 0 );
+
 # websocket client
 has 'ws' => (
     is => 'rw',
@@ -173,9 +175,19 @@ sub init_slackbot {
         { token => $self->oauth2_access_token },
     );
 
+    my $content = $res->content;
+    if (index($content, 'You') != -1) {
+        # you are sending messages too fast...
+        $self->should_reconnect(1);
+        return;
+    }
     my $data = decode_json($res->content);
     $self->rtm_state($data);
-    my $ws_url = $data->{url} or die "Didn't get websocket URL";
+    my $ws_url = $data->{url};
+    unless ($ws_url) {
+        ddx($data);
+        die "Didn't get websocket URL";
+    }
 
     $ws->connect($ws_url)->cb(sub {
         my $conn = eval { shift->recv };
@@ -186,6 +198,7 @@ sub init_slackbot {
             return;
         }
 
+        $self->should_reconnect(0);
         $self->ws($conn);
 
         $conn->on(each_message => sub {
@@ -242,9 +255,7 @@ sub init_slackbot {
             my ($connection) = @_;
             warn "DISCONNECTED";
 
-            # not sure if this is the best way to reconnect
-            # recursion? ugh
-            $self->init_slackbot;
+            $self->should_reconnect(1);
         });
     });
 }
@@ -445,7 +456,8 @@ sub got_oauth2_token_string {
     my $data = eval {decode_json($tok_str)};
     my $parse_error = $@;
     die "JSON parse error: $parse_error" if $parse_error;
-    my $access_token = $data->{access_token};
+    #my $access_token = $data->{access_token};  # if using "client" scope
+    my $access_token = $data->{bot}{bot_access_token};  # if using "bot" scope
     $self->oauth2_access_token($access_token);
     $self->save_oauth2_token_string($tok_str);
 }
@@ -472,7 +484,9 @@ sub slack_oauth2 {
     };
 
     my $oc = $self->config->{oauth2} || {};
-    my $hostname = $oc->{hostname} || 'localhost';
+    my $hostname = $oc->{hostname};
+    $hostname ||= $self->config->{hostname};
+    $hostname ||= 'localhost';
     my $port = $oc->{port} || 1488;
     my $redir = "http://$hostname:$port";
 #    warn $redir;
@@ -483,7 +497,7 @@ sub slack_oauth2 {
         redirect_uri => $redir,
 
         service_provider => 'Slack',
-        scope => "read,post,identify,client",
+        scope => "channels:read chat:write:bot identify bot",
 
         save_tokens => $save_tokens,
         token_string => $token_string,
