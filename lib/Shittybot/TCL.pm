@@ -103,7 +103,7 @@ sub tcl_library_path {
     # get path to lib/
     # SKEEZY HACK: replace with something smarter
     use FindBin;
-    my @lib_paths = ("$FindBin::Bin/lib","./lib");
+    my @lib_paths = ("$FindBin::Bin/tcl","./tcl");
     my $lib_path = undef; 
     foreach my $path (@lib_paths) {
        if (-e $path) { 
@@ -111,8 +111,7 @@ sub tcl_library_path {
            last;
        }
     }
-    $lib_path .= '/core';
-    die "Could not find lib/ dir" unless defined($lib_path);
+    die "Could not find tcl source dir" unless defined($lib_path);
     return $lib_path;
 }
 
