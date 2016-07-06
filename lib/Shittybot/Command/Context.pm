@@ -20,6 +20,10 @@ has 'nick' => (
     isa => 'Str|Undef',
 );
 
+has 'nicks' => (
+    is => 'ro',
+);
+
 has 'mask' => (
     is => 'ro',
     isa => 'Str|Undef',

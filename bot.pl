@@ -31,6 +31,8 @@ sub run {
     # spawn client for each network
     my @clients;
     while (my ($net, $net_conf) = each %$networks) {
+        next unless $net_conf->{slack}; # temp
+
         my $client = Shittybot->new(
             network => $net,
             config => $config,

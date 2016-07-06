@@ -20,8 +20,6 @@ BEGIN {
     with 'MooseX::Traits';
 };
 
-my $SLAVE_NAME = 'smeggdrop';
-
 # master interpreter and indexes of procs/vars
 our $INTERP;
 our $INDICES = {};
@@ -61,6 +59,11 @@ sub BUILD {
     $self->init_interp;
 }
 
+sub slave_name {
+    my ($self) = @_;
+    return $self->irc->network;
+}
+
 sub _build_interp { 
     my ($self) = @_;
 
@@ -69,6 +72,7 @@ sub _build_interp {
     # init the actual interpreter
     my $interp = $INTERP || Tcl->new;
     $INTERP ||= $interp;
+    my $SLAVE_NAME = $self->slave_name;
 
     # prepare master interp
     #foreach my $lib (qw/http_package tclcurl/) {
@@ -189,7 +193,7 @@ sub _safe_eval {
         # export current command context as vars in the context:: namespace
         $self->export_ctx_to_tcl($ctx);
 
-        $res = $self->eval_in_safe($ctx->{command});
+        $res = $self->interp->eval_in_safe($ctx->{command});
 
         # didn't explode! score
         $ok = 1;
@@ -371,7 +375,7 @@ sub vars {
 sub context {
     my ($self) = @_;
 
-    my @vars_to_import = qw/channel nick mask command/;
+    my @vars_to_import = qw/channel nick mask command nicks/;
     my %ctx;
     foreach my $var (@vars_to_import) {
         my $val = $self->get_tcl_var('context::' . $var);
@@ -386,7 +390,7 @@ sub export_ctx_to_tcl {
     my ($self, $ctx) = @_;
 
     # set current ctx vars
-    my @vars_to_export = qw/channel nick mask command/;
+    my @vars_to_export = qw/channel nick mask command nicks/;
     my %export_map;
     my $prefix = '';
     foreach my $var (@vars_to_export) {
@@ -394,7 +398,11 @@ sub export_ctx_to_tcl {
         $val = '' unless defined $val;
         
         # this blows up on non-scalar refs. how to export arrays/hashes?
-        $export_map{$prefix . $var} = ref $val ? $val : \$val;
+        if (ref($val) && ref($val) eq 'ARRAY') {
+            $self->interp->icall('set', "::$var", $val);
+        } else {
+            $export_map{$prefix . $var} = ref $val ? $val : \$val;
+        }
     }
 
     # warn Dumper(\%export_map);

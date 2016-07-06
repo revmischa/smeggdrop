@@ -12,7 +12,7 @@ namespace eval meta_proc {
     if {$command eq ""} {
       error "wrong # args: should be \"$name command ?arg arg ...?\""
     } elseif {[llength $matches] == 0} {
-      error "$commands bad command \"$command\": must be $usage"
+      error "bad command \"$command\": must be $usage"
     } elseif {[llength $matches] > 1} {
       error "ambiguous command \"$command\": must be $usage"
     } else {

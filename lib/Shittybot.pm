@@ -28,7 +28,7 @@ use Data::Dumper;
 BEGIN { extends 'AnyEvent::IRC::Client'; }
 
 binmode STDOUT, ":utf8";
-my $SLACK_KEEPALIVE_INTERVAL = 120;
+my $SLACK_KEEPALIVE_INTERVAL = 30;
 
 # hash of channel => \@logs
 has 'logs' => (
@@ -147,7 +147,7 @@ sub init {
             cb => sub {
                 # check if we need to reconnect?
                 return unless $self->should_reconnect;
-                print "(Re)connecting to Slack...\n";
+                print "(Re)connecting to Slack net " . $self->network . "...\n";
                 $self->init_slackbot;
             },
         )));
@@ -203,8 +203,9 @@ sub init_slackbot {
             { token => $self->oauth2_access_token },
         );
         my $content = $res->content;
-        if (index($content, 'You') != -1) {
+        if (index($content, 'You are sending messages too fast') != -1) {
             # you are sending messages too fast...
+            warn $content;
             $self->should_reconnect(1);
             warn "Got yelled at for sending messages too fast\n";
             return;
@@ -264,6 +265,9 @@ sub init_slackbot {
             if ($data->{type} eq 'hello') {
                 print "Connected and logged in to Slack\n";
             }
+            if ($data->{type} eq 'pong') {
+                print "Got pong $data->{reply_to}\n";
+            }
             if ($data->{type} eq 'reconnect_url') {
                 # handy pre-authed WSS URL for us to use for reconnecting
                 $self->ws_reconnect_url($data->{url});
@@ -296,7 +300,9 @@ sub init_slackbot {
                 my $is_watched_chan = grep { $_ eq $channel or $_ eq $channel_raw } @$chans;
 
                 # try to unmangle URLs... fuck you slack
-                $text =~ s!(<http([^>]+)>)!http$2!smg;
+                $text =~ s!(<http([^>]+)>)!http$2!smg if $text;
+                # allow preformatted messages
+                $text =~ s!^`+(.+)`+$!$1!sm if $text;
 
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
@@ -339,6 +345,24 @@ sub slack_channel_name {
     }
 }
 
+sub get_channel_nicks {
+    my ($self, $chanid) = @_;
+    my $channels = $self->rtm_state->{channels};
+    my $chan;
+    foreach my $c (@$channels) {
+        next unless $c->{id} eq $chanid;
+        $chan = $c;
+    }
+    return () unless $chan;
+    # look up user info
+    my $members = $chan->{members};
+    my @ret;
+    foreach my $m_id (@$members) {
+        push @ret, $self->slack_user_name($m_id);
+    }
+    return @ret;
+}
+
 sub handle_slack_eval {
     my ($self, $connection, $msg, $tcl) = @_;
 
@@ -358,7 +382,9 @@ sub handle_slack_eval {
 
     # add log info to interperter call
     my $loglines = $self->slurp_chat_lines($channel);
+    my @nicks = $self->get_channel_nicks($channel_id);
     my $cmd_ctx = Shittybot::Command::Context->new(
+        nicks => \@nicks,
         nick => $user,
         mask => undef,
         channel => $channel,
