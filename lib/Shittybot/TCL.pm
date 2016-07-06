@@ -8,7 +8,6 @@ use feature 'say';
 use Data::Dump  qw/ddx/;
 use Data::Dumper qw(Dumper);
 
-use Shittybot::TCL::ForkedTcl;
 use Shittybot::TCL::Loader;
 use Shittybot::Command::Context;
 
@@ -23,9 +22,10 @@ BEGIN {
 
 my $SLAVE_NAME = 'smeggdrop';
 
-# save currently loaded interpreter state to share across irc clients
-our ($INTERP, $INTERP_INITTED, $FORKER, $INDICES);
-$INDICES = {};
+# master interpreter and indexes of procs/vars
+our $INTERP;
+our $INDICES = {};
+sub indices { $INDICES }
 
 has 'state_path' => (
     is => 'ro',
@@ -48,14 +48,6 @@ has 'interp' => (
     builder => '_build_interp',
 );
 
-# forkring dispatcher to interpreter
-has 'safe_interp' => (
-    is => 'ro',
-    isa => 'Shittybot::TCL::ForkedTcl',
-    lazy_build => 1,
-    handles => [qw/ fork_eval /],
-);
-
 # path to saved state on disk
 has 'state_path' => (
     is => 'ro',
@@ -63,7 +55,11 @@ has 'state_path' => (
     required => 1,
 );
 
-sub indices { $INDICES }
+sub BUILD {
+    my ($self) = @_;
+
+    $self->init_interp;
+}
 
 sub _build_interp { 
     my ($self) = @_;
@@ -127,6 +123,7 @@ sub versioned_eval {
 
     # return err msg on failure
 
+    # how do we know if we should reload state? i forget
     #$self->reload_state_if_necessary($pre_state);
 
     return ($res, $ok) unless $ok;
@@ -142,9 +139,7 @@ sub versioned_eval {
     return ($res, $ok);
 }
 
-
 #####
-
 
 sub reload_vars_and_procs {
     my ($self, $interp) = @_;
@@ -157,70 +152,10 @@ sub reload_vars_and_procs {
     $loader->load_state;
 }
 
-
-sub _build_safe_interp {
-    my ($self) = @_;
-
-    return $FORKER if $FORKER;
-
-    # create forkring tcl interpreter wrapper
-    my $forker = Shittybot::TCL::ForkedTcl->new(
-        tcl => $self,
-        state_path => $self->state_path,
-    );
-
-    $FORKER = $forker;
-    return $forker;
-}
-
-sub BUILD {
-    my ($self) = @_;
-
-    $self->init_interp_once;
-}
-
-sub init_interp_once {
-    my ($self) = @_;
-
-    return if $INTERP_INITTED;
-
-    # only run once
-    $self->init_interp;
-
-    $INTERP_INITTED = 1;
-}
-
 # modify this in traits to install custom procs/vars
 sub init_interp {
     my ($self) = @_;
     $self->reload_vars_and_procs($self->interp);
-}
-
-# safely evals a command and print the result in irc
-sub safe_eval {
-    my ($self, $ctx, $cb) = @_;
-
-    my $channel = $ctx->channel;
-    my $nick = $ctx->nick;
-
-    my $ok = 0;
-    my $res;
-    try {
-        $res = $self->fork_eval($ctx);
-        $ok = 1;
-    } catch {
-        my ($err) = @_;
-        $err =~ s/(at lib.+)$//smg;
-        $err = "$nick: Error evaluating: $err";
-        warn $err;
-        $cb->($ctx, $err);
-        $ok = 0;
-    };
-    
-    return undef unless $ok;
-
-    $cb->($ctx, $res);
-    return $res;
 }
 
 # say something in the current channel
@@ -243,7 +178,6 @@ sub get_tcl_var {
 }
 
 # evals tcl with a safe slave interpreter
-# should be run from forked process (otherwise OOM errors can cause a fatal error)
 # returns ($result, $success)
 # if $success == 0, $result will be err str
 sub _safe_eval {
@@ -255,8 +189,7 @@ sub _safe_eval {
         # export current command context as vars in the context:: namespace
         $self->export_ctx_to_tcl($ctx);
 
-        # safe_interp reads the current command from the exported context
-        $res = $self->Eval($ctx->{command});
+        $res = $self->eval_in_safe($ctx->{command});
 
         # didn't explode! score
         $ok = 1;
@@ -270,15 +203,6 @@ sub _safe_eval {
 
     return ($res, $ok);
 }
-
-sub reload_state_if_necessary {
-    my ($self) = @_;
-    my $res = $self->Eval("SInterp::needs_state_reload");
-    if ($res == 1) {
-        $self->init_interp($self->interp);
-    }
-}
-
 
 # updates the proc and var state files and indices
 sub update_saved_state {
