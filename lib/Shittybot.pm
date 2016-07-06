@@ -28,6 +28,7 @@ use Data::Dumper;
 BEGIN { extends 'AnyEvent::IRC::Client'; }
 
 binmode STDOUT, ":utf8";
+my $SLACK_KEEPALIVE_INTERVAL = 120;
 
 # hash of channel => \@logs
 has 'logs' => (
@@ -68,6 +69,15 @@ has 'should_reconnect' => ( is => 'rw', isa => 'Bool', default => 0 );
 has 'ws' => (
     is => 'rw',
     isa => 'AnyEvent::WebSocket::Connection',
+);
+
+has 'ws_reconnect_url' => (
+    is => 'rw',
+    isa => 'Maybe[Str]',
+);
+
+has 'slack_keepalive_timer' => (
+    is => 'rw',
 );
 
 # Twigger HTTP server for OAuth2 redirect
@@ -169,25 +179,41 @@ sub init_slackbot {
 
     $self->refresh_slack_oauth2 or return;
 
-    # RTM.start
-    my $res = $self->oauth2->post(
-        "https://slack.com/api/rtm.start", 
-        { token => $self->oauth2_access_token },
-    );
+    if ($self->ws_reconnect_url) {
+        # we have a pre-authed reconnect url handy
+        $ws_url = $self->ws_reconnect_url;
+    } else {
+        # RTM.start
+        # get WSS url
+        my $res = $self->oauth2->post(
+            "https://slack.com/api/rtm.start", 
+            {
+                token => $self->oauth2_access_token },
+        );
 
-    my $content = $res->content;
-    if (index($content, 'You') != -1) {
-        # you are sending messages too fast...
-        $self->should_reconnect(1);
-        return;
+        my $content = $res->content;
+        if (index($content, 'You') != -1) {
+            # you are sending messages too fast...
+            $self->should_reconnect(1);
+            return;
+        }
+        my $data = decode_json($res->content);
+        $self->rtm_state($data);
+        my $ws_url = $data->{url};
+        unless ($ws_url) {
+            ddx($data);
+            die "Didn't get websocket URL";
+        }
     }
-    my $data = decode_json($res->content);
-    $self->rtm_state($data);
-    my $ws_url = $data->{url};
-    unless ($ws_url) {
-        ddx($data);
-        die "Didn't get websocket URL";
-    }
+
+    # keepalive timer
+    $self->slack_keepalive_timer(AnyEvent->timer(
+        after => $SLACK_KEEPALIVE_INTERVAL,
+        interval => $SLACK_KEEPALIVE_INTERVAL,
+        cb => sub {
+            $self->send_slack_ping;
+        },
+    ));
 
     $ws->connect($ws_url)->cb(sub {
         my $conn = eval { shift->recv };
@@ -195,8 +221,10 @@ sub init_slackbot {
         if ($@) {
             # handle error...
             warn $@;
+            $self->ws_reconnect_url(undef);
             return;
         }
+        print "Connected to Slack\n";
 
         $self->should_reconnect(0);
         $self->ws($conn);
@@ -210,10 +238,14 @@ sub init_slackbot {
             return unless $message->is_text;
 
             my $data = decode_json($message->body);
-        # dump messages here:
-        #ddx($data);
+            # dump messages here:
+            ddx($data);
+            if ($data->{type} eq 'reconnect_url') {
+                # handy pre-authed WSS URL for us to use for reconnecting
+                $self->ws_reconnect_url($data->{url});
+            }
             if ($data->{type} eq 'message') {
-        my $channel_raw = $data->{channel};
+                my $channel_raw = $data->{channel};
                 my $channel = $data->{channel};
 
                 # edited message?
@@ -414,7 +446,7 @@ sub send_slack_msg {
     try {
         my $res = $self->slack_api(
             "/chat.postMessage",
-        $msg,
+            $msg,
             sub {
                 my ($data, $hdr) = @_;
                 unless ($data->{ok}) {
@@ -428,6 +460,20 @@ sub send_slack_msg {
         my $err = shift;
         warn "Error posting message: $err";
     };
+}
+
+# let server know we're still alive
+sub send_slack_ping {
+    my ($self) = @_;
+
+    my $msg_id = $self->{_slack_msg_id} || 0;
+    $msg_id++;
+    $self->{_slack_msg_id} = $msg_id;
+    if ($self->ws && ! $self->should_reconnect) {
+        my $msg = encode_json({ type => 'ping', id => $msg_id });
+        $self->refresh_slack_oauth2;
+        $self->ws->send($msg);
+    }
 }
 
 sub save_oauth2_token_string {
