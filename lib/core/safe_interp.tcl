@@ -34,9 +34,9 @@ proc get_safe_interp {args} {
         # set bg error handler
         interp bgerror $our_last_safe_interp safe_interp_bgerror
 
-        # set interp resource limits
-        #interp limit $_interp command -value 1000  # max number of commands that can be executed
-        #...
+        foreach mod [list meta_proc meta cache dict] {
+            $our_last_safe_interp invokehidden source "$::SMEGGDROP_ROOT/core/${mod}.tcl"
+        }
 
         # export some procs to slave
         $our_last_safe_interp alias nick nick

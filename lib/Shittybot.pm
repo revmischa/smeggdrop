@@ -64,6 +64,8 @@ has 'network_config' => (
 );
 
 has 'should_reconnect' => ( is => 'rw', isa => 'Bool', default => 0 );
+has 'slack_keepalive_timer' => ( is => 'rw' );
+has 'slack_reconnect_timer' => ( is => 'rw' );
 
 # websocket client
 has 'ws' => (
@@ -74,10 +76,6 @@ has 'ws' => (
 has 'ws_reconnect_url' => (
     is => 'rw',
     isa => 'Maybe[Str]',
-);
-
-has 'slack_keepalive_timer' => (
-    is => 'rw',
 );
 
 # Twigger HTTP server for OAuth2 redirect
@@ -142,7 +140,17 @@ sub init {
     $self->init_tcl;
 
     if ($self->is_slack) {
-        $self->init_slackbot;
+        $self->should_reconnect(1);
+        $self->slack_reconnect_timer(AnyEvent->timer((
+            after => 0,
+            interval => 5,
+            cb => sub {
+                # check if we need to reconnect?
+                return unless $self->should_reconnect;
+                print "(Re)connecting to Slack...\n";
+                $self->init_slackbot;
+            },
+        )));
     } else {
         $self->init_irc;
     }
@@ -170,36 +178,40 @@ sub channel_msg {
 sub init_slackbot {
     my ($self) = @_;
 
+    $self->should_reconnect(0);
+
     my $conf = $self->network_config;
     my $trigger = $conf->{trigger};
 
     my $api_token = $conf->{api_token} or die "Slack API token not configured";
 
     my $ws = AnyEvent::WebSocket::Client->new;
-
-    $self->refresh_slack_oauth2 or return;
-
+    my $ws_url;
     if ($self->ws_reconnect_url) {
         # we have a pre-authed reconnect url handy
         $ws_url = $self->ws_reconnect_url;
     } else {
         # RTM.start
         # get WSS url
+        print "Initializing Slack bot...\n";
+        unless ($self->refresh_slack_oauth2) {
+            warn "Failed to refresh OAuth token\n";
+            return;
+        }
         my $res = $self->oauth2->post(
-            "https://slack.com/api/rtm.start", 
-            {
-                token => $self->oauth2_access_token },
+            "https://slack.com/api/rtm.start",
+            { token => $self->oauth2_access_token },
         );
-
         my $content = $res->content;
         if (index($content, 'You') != -1) {
             # you are sending messages too fast...
             $self->should_reconnect(1);
+            warn "Got yelled at for sending messages too fast\n";
             return;
         }
         my $data = decode_json($res->content);
         $self->rtm_state($data);
-        my $ws_url = $data->{url};
+        $ws_url = $data->{url};
         unless ($ws_url) {
             ddx($data);
             die "Didn't get websocket URL";
@@ -218,13 +230,15 @@ sub init_slackbot {
     $ws->connect($ws_url)->cb(sub {
         my $conn = eval { shift->recv };
 
+        $self->ws_reconnect_url(undef);
+
         if ($@) {
             # handle error...
+            warn "Connect error\n";
             warn $@;
-            $self->ws_reconnect_url(undef);
             return;
         }
-        print "Connected to Slack\n";
+        print "Connected to Slack WebSocket server, authenticating...\n";
 
         $self->should_reconnect(0);
         $self->ws($conn);
@@ -233,13 +247,23 @@ sub init_slackbot {
             # $message isa AnyEvent::WebSocket::Message
             my ($connection, $message) = @_;
 
-            $self->refresh_slack_oauth2;
+            #$self->refresh_slack_oauth2;
 
             return unless $message->is_text;
 
             my $data = decode_json($message->body);
             # dump messages here:
             ddx($data);
+            if ($data->{type} eq 'error' && $data->{code} == 1) {
+                # expired socket URL :(
+                warn "Expired socket URL\n";
+                $self->ws_reconnect_url(undef);
+                $self->should_reconnect(1);
+                return;
+            }
+            if ($data->{type} eq 'hello') {
+                print "Connected and logged in to Slack\n";
+            }
             if ($data->{type} eq 'reconnect_url') {
                 # handy pre-authed WSS URL for us to use for reconnecting
                 $self->ws_reconnect_url($data->{url});
@@ -471,7 +495,7 @@ sub send_slack_ping {
     $self->{_slack_msg_id} = $msg_id;
     if ($self->ws && ! $self->should_reconnect) {
         my $msg = encode_json({ type => 'ping', id => $msg_id });
-        $self->refresh_slack_oauth2;
+        #$self->refresh_slack_oauth2;
         $self->ws->send($msg);
     }
 }
@@ -570,6 +594,7 @@ sub slack_oauth2 {
     );
     $self->httpd($server);
 
+    $self->should_reconnect(0);
     $server->register_service(sub {
         my $env = shift; # PSGI env
      
@@ -587,10 +612,10 @@ sub slack_oauth2 {
      
         my $res = $req->new_response(200); # new Plack::Response
         $res->content("Auth success!") if $code;
+        $self->should_reconnect(1);
         $res->finalize;
     });
 
-    $oauth_wait_cv->recv;
     $self->stop_httpd;
     return 1;
 }
