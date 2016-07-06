@@ -2,9 +2,9 @@ namespace eval meta_proc {
   proc call {namespace name arguments commands} {
     set command [lindex $arguments 0]
     set arguments [lrange $arguments 1 end]    
-    if ![llength $commands] {
+#    if ![llength $commands] {
       set commands [lsort [namespace eval ::$namespace {info procs}]]
-    }
+#    }
     
     set usage [join [concat [lrange $commands 0 end-1] [list "or [lindex $commands end]"]] ", "]
     set matches [lsearch -all -inline -glob $commands $command*]
@@ -12,7 +12,7 @@ namespace eval meta_proc {
     if {$command eq ""} {
       error "wrong # args: should be \"$name command ?arg arg ...?\""
     } elseif {[llength $matches] == 0} {
-      error "bad command \"$command\": must be $usage"
+      error "$commands bad command \"$command\": must be $usage"
     } elseif {[llength $matches] > 1} {
       error "ambiguous command \"$command\": must be $usage"
     } else {

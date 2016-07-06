@@ -34,6 +34,16 @@ sub load_state {
     say "Loading state...";
     $self->load_state_object("procs");
     $self->load_state_object("vars");
+
+    say "Aliasing commands into global namespace...";
+    $self->interp->Eval(q!
+foreach alias [namespace eval commands {info procs}] {
+  if {[lsearch -exact [commands::get hidden_procs] $alias] == -1} {
+    alias $alias ::commands::$alias
+    core::print "aliasing $alias"
+  }
+}
+!);
 }
 
 # load a set of serialized objects (procs, vars) from disk,
@@ -100,6 +110,7 @@ sub load_index {
     # TODO: asynchrify this for massively improved loading time plz
     my $ret = {};
     while (my ($name, $sha1) = each %index) {
+        #next unless $name && $sha1;
         my $data_fh;
         my $data_path = "$state_path/$type/$sha1";
         unless (open($data_fh, $data_path)) {

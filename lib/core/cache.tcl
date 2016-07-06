@@ -52,5 +52,5 @@ namespace eval cache {
 }
 
 namespace eval commands {
-  meta_proc cache delete exists fetch get keys put
+  meta_proc cache "delete" "exists" "fetch" "get" "keys" "put"
 }

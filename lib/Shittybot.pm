@@ -253,7 +253,7 @@ sub init_slackbot {
 
             my $data = decode_json($message->body);
             # dump messages here:
-            ddx($data);
+            #ddx($data);
             if ($data->{type} eq 'error' && $data->{code} == 1) {
                 # expired socket URL :(
                 warn "Expired socket URL\n";
@@ -295,10 +295,13 @@ sub init_slackbot {
                 }
                 my $is_watched_chan = grep { $_ eq $channel or $_ eq $channel_raw } @$chans;
 
+                # try to unmangle URLs... fuck you slack
+                $text =~ s!(<http([^>]+)>)!http$2!smg;
+
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
                     $code =~ s/$trigger//;
-                    #say "Got trigger: [$trigger] $code";
+                    say "Got trigger: [$trigger] $code";
                     $self->handle_slack_eval($connection, $data, $code);
                 } else {
                     $text = Encode::decode('utf8', $text);

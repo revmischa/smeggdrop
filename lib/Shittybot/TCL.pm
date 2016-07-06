@@ -21,6 +21,8 @@ BEGIN {
     with 'MooseX::Traits';
 };
 
+my $SLAVE_NAME = 'smeggdrop';
+
 # save currently loaded interpreter state to share across irc clients
 our ($INTERP, $INTERP_INITTED, $FORKER, $INDICES);
 $INDICES = {};
@@ -66,12 +68,38 @@ sub indices { $INDICES }
 sub _build_interp { 
     my ($self) = @_;
 
-    return $INTERP if $INTERP;
+    my $lib_path = $self->tcl_library_path;
 
     # init the actual interpreter
-    my $interp = Tcl->new;
+    my $interp = $INTERP || Tcl->new;
+    $INTERP ||= $interp;
+
+    # prepare master interp
+    #foreach my $lib (qw/http_package tclcurl/) {
+    #    $interp->Eval(qq!source "$lib_path/${lib}.tcl"!, Tcl::EVAL_GLOBAL);
+    #}
+
+    # create slave interp from master
+    my $slave = $interp->CreateSlave($SLAVE_NAME, 1);
 
     # load core tcl procs
+
+    foreach my $lib (qw/meta_proc commands meta cache dict http_package tclcurl http/) {
+        $interp->Eval(qq!interp invokehidden $SLAVE_NAME  source "$lib_path/${lib}.tcl"!, Tcl::EVAL_GLOBAL);
+    }
+    #$interp->Eval(qq!$SLAVE_NAME alias http_get http_get!);
+    #$interp->Eval(qq!$SLAVE_NAME alias http http!);
+
+    my $is_safe = $interp->Eval(qq!interp issafe $SLAVE_NAME!);
+    unless ($is_safe) {
+        warn "WARNING: RUNNING WITH UNSAFE SLAVE INTERPRETER!!";
+    }
+
+    return $slave;
+}
+
+sub tcl_library_path {
+    my ($self) = @_;
     # get path to lib/
     # SKEEZY HACK: replace with something smarter
     use FindBin;
@@ -83,11 +111,9 @@ sub _build_interp {
            last;
        }
     }
+    $lib_path .= '/core';
     die "Could not find lib/ dir" unless defined($lib_path);
-    $interp->EvalFile("$lib_path/core.tcl");
-
-    $INTERP = $interp;
-    return $interp;
+    return $lib_path;
 }
 
 # evaluates $command, tracking changes to vars and procs
@@ -102,7 +128,7 @@ sub versioned_eval {
 
     # return err msg on failure
 
-    $self->reload_state_if_necessary($pre_state);
+    #$self->reload_state_if_necessary($pre_state);
 
     return ($res, $ok) unless $ok;
 
@@ -231,7 +257,7 @@ sub _safe_eval {
         $self->export_ctx_to_tcl($ctx);
 
         # safe_interp reads the current command from the exported context
-        $res = $self->Eval("safe_interp");
+        $res = $self->Eval($ctx->{command});
 
         # didn't explode! score
         $ok = 1;
@@ -283,6 +309,9 @@ sub save {
         if ($current && $current ne $sha1) {
             warn "Found value for $k in index but it was not what we expected! ($current != $sha1)";
             next;
+        }
+        unless (defined $v) {
+            warn "Got undef for $category $k";
         }
 
         # locate file
@@ -454,7 +483,6 @@ sub export_ctx_to_tcl {
     );
 }
 
-# export a proc to interp and alias it in slave
 # procs = hashref of proc name => callback
 sub export_procs_to_slave {
     my ($self, $namespace, $procs) = @_;
@@ -477,22 +505,26 @@ sub export_procs_to_slave {
             namespace => $namespace,
             subs => { $name => $cb_wrapped },
         );
-
-        $self->Eval("export_proc_to_slave {$fullname}");
     }
-
-    # delete from parent now? prob not
 }
 
 __PACKAGE__->meta->make_immutable;
-# I know this is wrong
+
 package Tcl;
 use strict;
+use Try::Tiny;
+use Carp qw/croak/;
+
 sub eval_in_safe {
     my ($self, $command) = @_;
-    my $eval = "safe_interp_eval {$command}";
-    #warn "Trying to safe eval @_  $eval ";
-    return $self->Eval($eval);
+    my $ary = wantarray;
+    my @res;
+    try {
+        @res = $ary ? ($self->Eval($command)) : (scalar $self->Eval($command));
+    } catch {
+        croak "Error evaluating '$command': $_";
+    };
+    return $ary ? @res : $res[0];
 }
 
 1;
