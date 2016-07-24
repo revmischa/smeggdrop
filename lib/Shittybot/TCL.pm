@@ -444,12 +444,15 @@ __PACKAGE__->meta->make_immutable;
 package Tcl;
 use strict;
 use Try::Tiny;
+use Data::Dump qw/ddx/;
 use Carp qw/croak/;
 
 sub eval_in_safe {
     my ($self, $command) = @_;
     my $ary = wantarray;
     my @res;
+    #my @args = $self->SplitList($command);
+    #ddx(\@args);
     try {
         @res = $ary ? ($self->Eval($command)) : (scalar $self->Eval($command));
     } catch {

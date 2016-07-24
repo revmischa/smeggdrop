@@ -36,7 +36,8 @@ sub load_state {
     $self->load_state_object("vars");
 
     say "Aliasing commands into global namespace...";
-    $self->interp->Eval(q!
+    try {
+        $self->interp->Eval(q!
 foreach alias [namespace eval commands {info procs}] {
   if {[lsearch -exact [commands::get hidden_procs] $alias] == -1} {
     alias $alias ::commands::$alias
@@ -44,6 +45,9 @@ foreach alias [namespace eval commands {info procs}] {
   }
 }
 !);
+    } catch {
+        warn "Error aliasing: $_";
+    };
 }
 
 # load a set of serialized objects (procs, vars) from disk,

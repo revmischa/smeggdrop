@@ -299,10 +299,7 @@ sub init_slackbot {
                 }
                 my $is_watched_chan = grep { $_ eq $channel or $_ eq $channel_raw } @$chans;
 
-                # try to unmangle URLs... fuck you slack
-                $text =~ s!(<http([^>]+)>)!http$2!smg if $text;
-                # allow preformatted messages
-                $text =~ s!^`+(.+)`+$!$1!sm if $text;
+                $text = $self->unfuck_slack_message($text) if $text;
 
                 if ($text && $is_watched_chan && $text =~ /$trigger/) {
                     my $code = $text;
@@ -323,6 +320,15 @@ sub init_slackbot {
             $self->should_reconnect(1);
         });
     });
+}
+
+sub unfuck_slack_message {
+    my ($self, $text) = @_;
+    # try to unmangle URLs... fuck you slack
+    $text =~ s!(<http([^>]+)>)!http$2!smg if $text;
+    # allow preformatted messages
+    $text =~ s!^\s*`+\s*(.+)\s*`+\s*$!$1!sm if $text;
+    return $text;
 }
 
 sub slack_user_name {
@@ -1039,13 +1045,13 @@ sub chunkby {
 sub looks_shady {
     my ($self, $from, $code) = @_;
 
-    return 1 if $code =~ /foreach\s+proc/i;
+#    return 1 if $code =~ /foreach\s+proc/i;
     return 1 if $code =~ /irc\.arabs\./i;
-    return 1 if $code =~ /foreach p \[info proc\]/i;
-    return 1 if $code =~ /foreach.+info\s+proc/i;
-    return 1 if $code =~ /foreach\s+var/i;
-    return 1 if $code =~ /proc \w+ \{\} \{\}/i;
-    return 1 if $code =~ /set \w+ \{\}/i;
+#    return 1 if $code =~ /foreach p \[info proc\]/i;
+#    return 1 if $code =~ /foreach.+info\s+proc/i;
+#    return 1 if $code =~ /foreach\s+var/i;
+#    return 1 if $code =~ /proc \w+ \{\} \{\}/i;
+#    return 1 if $code =~ /set \w+ \{\}/i;
     return 1 if $code =~ /lopl/i;
 
     return 0 unless $from;
