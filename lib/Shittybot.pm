@@ -327,7 +327,8 @@ sub unfuck_slack_message {
     # try to unmangle URLs... fuck you slack
     $text =~ s!(<http([^>]+)>)!http$2!smg if $text;
     # allow preformatted messages
-    $text =~ s!^\s*`+\s*(.+)\s*`+\s*$!$1!sm if $text;
+    $text =~ s!^\s*`+\s*([^`]+)\s*`+\s*$!$1!smg if $text;
+    $text =~ s!&amp;!&!smg;
     return $text;
 }
 
@@ -415,9 +416,14 @@ sub handle_slack_eval {
     if ($ok) {
         # eval success
         $cmd_res ||= '(No output)' if defined $cmd_res;
+
+        # stripe colors/formatting for slack
+        my $slack_cmd_res = $cmd_res;
+        $slack_cmd_res =~ s/([\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><])//g;
+        
         push @attachments, {
             title => "Eval: '$msg->{text}'",
-            text => "```$cmd_res```",
+            text => "```$slack_cmd_res```",
             fallback => $cmd_res . '',
             color => 'good',
             parse => 'none',
@@ -432,7 +438,7 @@ sub handle_slack_eval {
         }
         push @attachments, {
             title => "Eval error: '$msg->{text}'",
-            text => "Error: $cmd_res",
+            text => "$cmd_res",
             color => 'danger',
             parse => 'none',
         };

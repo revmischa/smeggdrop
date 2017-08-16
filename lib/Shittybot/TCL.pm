@@ -90,6 +90,9 @@ sub _build_interp {
     #$interp->Eval(qq!$SLAVE_NAME alias http_get http_get!);
     #$interp->Eval(qq!$SLAVE_NAME alias http http!);
 
+    # clock is hidden or something?
+    #$interp->Eval(qq!interp expose $SLAVE_NAME clock!);
+
     my $is_safe = $interp->Eval(qq!interp issafe $SLAVE_NAME!);
     unless ($is_safe) {
         warn "WARNING: RUNNING WITH UNSAFE SLAVE INTERPRETER!!";
