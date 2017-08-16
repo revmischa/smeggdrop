@@ -419,7 +419,7 @@ sub handle_slack_eval {
 
         # stripe colors/formatting for slack
         my $slack_cmd_res = $cmd_res;
-        $slack_cmd_res =~ s/([\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><])//g;
+        $slack_cmd_res =~ s/([\x02\x1F\x0F\x16]|\x03(\d\d?(,\d\d?)?)?)//g;
         
         push @attachments, {
             title => "Eval: '$msg->{text}'",

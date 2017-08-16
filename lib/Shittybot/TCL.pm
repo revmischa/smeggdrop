@@ -393,7 +393,7 @@ sub export_ctx_to_tcl {
     my ($self, $ctx) = @_;
 
     # set current ctx vars
-    my @vars_to_export = qw/channel nick mask command nicks/;
+    my @vars_to_export = qw/channel nick mask command/;
     my %export_map;
     my $prefix = '';
     foreach my $var (@vars_to_export) {
