@@ -27,8 +27,10 @@ use Data::Dumper;
 
 BEGIN { extends 'AnyEvent::IRC::Client'; }
 
-binmode STDOUT, ":utf8";
+# binmode STDOUT, ":utf8";
 my $SLACK_KEEPALIVE_INTERVAL = 30;
+
+my $datadir = $ENV{SMEGGDROP_DATA} || '.';
 
 # hash of channel => \@logs
 has 'logs' => (
@@ -119,7 +121,7 @@ sub _build_tcl {
 
     my $config = $self->config;
     
-    my $state_dir = $config->{state_directory};
+    my $state_dir = $datadir . '/' . $config->{state_directory};
     my $traits = $config->{traits} || [];
 
     my @traits = map { "Shittybot::TCL::Trait::$_" } @$traits;
@@ -544,7 +546,7 @@ sub send_slack_ping {
 sub save_oauth2_token_string {
     my ($self, $tok_str) = @_;
     my $netname = $self->network;
-    my $fh; open $fh, ">${netname}-oauth2-token" or die "Couldn't save token $!";
+    my $fh; open $fh, ">$datadir/${netname}-oauth2-token" or die "Couldn't save token $!";
     print $fh $tok_str;
     close $fh;
 }
@@ -552,7 +554,7 @@ sub save_oauth2_token_string {
 sub load_oauth2_token_string {
     my ($self) = @_;
     my $netname = $self->network;
-    my $fh; open $fh, "${netname}-oauth2-token" or return;
+    my $fh; open $fh, "$datadir/${netname}-oauth2-token" or return;
     local $/;
     my $tok_str = <$fh>;
     close $fh;

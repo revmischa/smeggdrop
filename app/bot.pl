@@ -13,6 +13,11 @@ use lib 'lib';
 use Shittybot;
 use Config::JFDI;
 
+# disable stdout buffering
+$| = 1;
+
+my $datadir = $ENV{SMEGGDROP_DATA} || '.';
+
 ## anyevent main CV
 my $cond = AnyEvent->condvar;
 
@@ -22,7 +27,7 @@ $cond->wait;
 
 sub run {
     # load shittybot.yml/conf/ini/etc
-    my $config_raw = Config::JFDI->new(name => 'shittybot');
+    my $config_raw = Config::JFDI->new(path => "./$datadir", name => 'shittybot');
     my $config = $config_raw->get;
 
     my $networks = $config->{networks}
