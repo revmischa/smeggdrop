@@ -1,4 +1,4 @@
 shittybot.yml
 state*
-smeggdrop.conf
-lib/Shittybot/Logger.pm
+app/lib/Shittybot/Logger.pm
+int80_slack-oauth2-token

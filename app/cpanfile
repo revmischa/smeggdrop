@@ -1,4 +1,4 @@
-requires 'YAML::XS';
+requires 'YAML';
 requires 'MooseX::Traits';
 requires 'Tcl' => '1.02';
 requires 'AnyEvent::IRC::Client';
