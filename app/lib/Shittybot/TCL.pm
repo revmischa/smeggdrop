@@ -74,24 +74,28 @@ sub _build_interp {
     $INTERP ||= $interp;
     my $SLAVE_NAME = $self->slave_name;
 
-    # prepare master interp
+
+    # prepare master interp    
     #foreach my $lib (qw/http_package tclcurl/) {
     #    $interp->Eval(qq!source "$lib_path/${lib}.tcl"!, Tcl::EVAL_GLOBAL);
     #}
+
+    # fix clock bullshit
+    $interp->Eval(qq!source "$lib_path/msgcat-1.5.2.tm"!, Tcl::EVAL_GLOBAL);
+    $interp->Eval(qq!source "$lib_path/clock.tcl"!, Tcl::EVAL_GLOBAL);
+    $interp->Eval(q!
+        namespace eval ::tcl::clock [list namespace ensemble create -command ::clock -subcommands { add clicks format microseconds milliseconds scan seconds }]
+    !);
 
     # create slave interp from master
     my $slave = $interp->CreateSlave($SLAVE_NAME, 1);
 
     # load core tcl procs
-
     foreach my $lib (qw/meta_proc commands meta cache dict http_package tclcurl http/) {
-        $interp->Eval(qq!interp invokehidden $SLAVE_NAME  source "$lib_path/${lib}.tcl"!, Tcl::EVAL_GLOBAL);
+        $interp->Eval(qq!interp invokehidden $SLAVE_NAME source "$lib_path/${lib}.tcl"!, Tcl::EVAL_GLOBAL);
     }
     #$interp->Eval(qq!$SLAVE_NAME alias http_get http_get!);
     #$interp->Eval(qq!$SLAVE_NAME alias http http!);
-
-    # clock is hidden or something?
-    #$interp->Eval(qq!interp expose $SLAVE_NAME clock!);
 
     my $is_safe = $interp->Eval(qq!interp issafe $SLAVE_NAME!);
     unless ($is_safe) {

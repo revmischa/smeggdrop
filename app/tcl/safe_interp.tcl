@@ -43,6 +43,7 @@ proc get_safe_interp {args} {
         $our_last_safe_interp alias mask mask
         $our_last_safe_interp alias channel channel
         $our_last_safe_interp alias command command
+        $our_last_safe_interp alias clock clock
 
         set safe_interp_is_safe 1
     }
