@@ -291,15 +291,9 @@ sub init_slackbot {
                 # skip if from self
                 return if $nick && $nick eq $conf->{nickname};
 
-                # is this in a watched channel
+                # is this in a watched channel?
                 my $chans = $conf->{channels} || [];
-                # ddx($chans);
-                # warn "chan: $channel";
-                unless ($chans && @$chans) {
-                    warn "Got a message on slack but not watching any channels";
-                    return;
-                }
-                my $is_watched_chan = grep { $_ eq $channel or $_ eq $channel_raw } @$chans;
+                my $is_watched_chan = @$chans ? grep { $_ eq $channel or $_ eq $channel_raw } @$chans : 1;
 
                 $text = $self->unfuck_slack_message($text) if $text;
 
