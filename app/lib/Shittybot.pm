@@ -417,11 +417,14 @@ sub handle_slack_eval {
         my $slack_cmd_res = $cmd_res;
         $slack_cmd_res =~ s/([\x02\x1F\x0F\x16]|\x03(\d\d?(,\d\d?)?)?)//g;
         $cmd_res =~ s/([\x02\x1F\x0F\x16]|\x03(\d\d?(,\d\d?)?)?)//g;
+
+        # leading space collapsing fix for slack irc
+        $cmd_res =~ s/^\s/\x{200E}/gm;  # LTR mark
         
         push @attachments, {
             title => "Eval: '$msg->{text}'",
             text => "```$slack_cmd_res```",
-            fallback => $cmd_res . '',
+            fallback => "$cmd_res",
             color => 'good',
             parse => 'none',
 
@@ -438,17 +441,13 @@ sub handle_slack_eval {
             text => "$cmd_res",
             color => 'danger',
             parse => 'none',
+            fallback => "$cmd_res",
+            mrkdwn_in => [qw/ text /],
         };
     }
 
     $reply_msg{attachments} = encode_json(\@attachments) if @attachments;
     $self->send_slack_msg(\%reply_msg);
-
-    # $self->safe_eval($cmd_ctx, sub {
-    #     my ($ctx, $res) = @_;
-    #     warn "res: $res";
-    #     $self->send_slack_message($msg, $res);
-    # });
 }
 
 my $guard;

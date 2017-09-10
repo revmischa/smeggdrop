@@ -208,7 +208,7 @@ sub _safe_eval {
         my ($err) = @_;
         $err =~ s/(at lib.+)$//smg;
         $err =~ s/(at \/.+ line \d+\.)$//smg;
-        $res = "Error: $err";
+        $res = "$err";
         $ok = 0;
     };
 
