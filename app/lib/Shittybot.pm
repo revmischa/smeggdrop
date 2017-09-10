@@ -402,7 +402,7 @@ sub handle_slack_eval {
     my @attachments;
     my %reply_msg = (
         channel => $channel_id,
-        username => 'TclBot',
+        username => 'Tcl',
         icon_url => $icon_url,
         unfurl_media => 0,
         unfurl_links => 0,
@@ -419,7 +419,7 @@ sub handle_slack_eval {
         $cmd_res =~ s/([\x02\x1F\x0F\x16]|\x03(\d\d?(,\d\d?)?)?)//g;
 
         # leading space collapsing fix for slack irc
-        $cmd_res =~ s/^\s/\x{200E}/gm;  # LTR mark
+        $cmd_res =~ s/^\s/\x{200E}/;  # LTR mark
         
         push @attachments, {
             title => "Eval: '$msg->{text}'",
