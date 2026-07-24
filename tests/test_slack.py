@@ -328,3 +328,71 @@ def test_capitalized_trigger_works_end_to_end(engine, cfg):
 def test_env_trigger_is_also_case_insensitive():
     cfg = SlackConfig.from_env({"SMEGGDROP_TRIGGER": r"^!eval\s"})
     assert cfg.trigger.search("!EVAL puts hi")
+
+
+class FlakyClient(StubClient):
+    """Fails the first `failures` posts with a transient error."""
+
+    def __init__(self, failures=1, error=None, **kw):
+        super().__init__(**kw)
+        self.failures = failures
+        self.attempts = 0
+        self.error = error or OSError("_ssl.c:983: The handshake operation timed out")
+
+    def chat_postMessage(self, **kwargs):
+        self.attempts += 1
+        if self.attempts <= self.failures:
+            raise self.error
+        return super().chat_postMessage(channel=kwargs["channel"], text=kwargs["text"])
+
+
+def test_transient_post_failure_is_retried(engine, cfg, monkeypatch):
+    monkeypatch.setattr("smeggdrop.platforms.slack.POST_BACKOFF_SECONDS", 0)
+    client = FlakyClient(failures=2)
+    handle_message_event(engine, client, event("tcl expr {6 * 7}"), cfg)
+    assert client.attempts == 3
+    assert client.posted == [("C123", "```42```")]
+
+
+def test_permanent_post_failure_is_not_retried(engine, cfg):
+    client = FlakyClient(failures=5, error=RuntimeError("channel_not_found"))
+    with pytest.raises(RuntimeError):
+        handle_message_event(engine, client, event("tcl expr {6 * 7}"), cfg)
+    assert client.attempts == 1
+
+
+def test_retry_gives_up_and_raises(engine, cfg, monkeypatch):
+    monkeypatch.setattr("smeggdrop.platforms.slack.POST_BACKOFF_SECONDS", 0)
+    client = FlakyClient(failures=99)
+    with pytest.raises(OSError):
+        handle_message_event(engine, client, event("tcl expr {6 * 7}"), cfg)
+    assert client.attempts == 3
+
+
+@pytest.mark.parametrize(
+    "error,transient",
+    [
+        (OSError("handshake operation timed out"), True),
+        (OSError("Connection reset by peer"), True),
+        (RuntimeError("ratelimited"), True),
+        (RuntimeError("channel_not_found"), False),
+        (RuntimeError("invalid_auth"), False),
+    ],
+)
+def test_is_transient(error, transient):
+    from smeggdrop.platforms.slack import is_transient
+
+    assert is_transient(error) is transient
+
+
+def test_retry_after_header_is_honoured():
+    from smeggdrop.platforms.slack import retry_after_seconds
+
+    class Response:
+        status_code = 429
+        headers = {"Retry-After": ["7"]}
+
+    class Err(Exception):
+        response = Response()
+
+    assert retry_after_seconds(Err()) == 7.0

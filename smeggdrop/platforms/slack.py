@@ -20,6 +20,7 @@ import html
 import logging
 import os
 import re
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
@@ -307,17 +308,68 @@ def handle_message_event(
     return True
 
 
+POST_ATTEMPTS = 3
+POST_BACKOFF_SECONDS = 0.5
+
+
 def post(client, channel: str, text: str):
     """Post eval output. Everything here is attacker-influenced, so slack is
-    told not to linkify, unfurl, or resolve names in it."""
-    return client.chat_postMessage(
-        channel=channel,
-        text=text,
-        parse="none",
-        link_names=False,
-        unfurl_links=False,
-        unfurl_media=False,
-    )
+    told not to linkify, unfurl, or resolve names in it.
+
+    Retries transient failures: a TLS handshake timeout or a rate limit
+    here means the eval ran but its answer never arrived, which reads in
+    channel as the bot ignoring you.
+    """
+    delay = POST_BACKOFF_SECONDS
+    for attempt in range(1, POST_ATTEMPTS + 1):
+        try:
+            return client.chat_postMessage(
+                channel=channel,
+                text=text,
+                parse="none",
+                link_names=False,
+                unfurl_links=False,
+                unfurl_media=False,
+            )
+        except Exception as e:  # noqa: BLE001 — sdk raises several types
+            if attempt == POST_ATTEMPTS or not is_transient(e):
+                raise
+            wait = retry_after_seconds(e) or delay
+            log.warning("post failed (%s), retrying in %.1fs", e, wait)
+            time.sleep(wait)
+            delay *= 2
+
+
+TRANSIENT_MARKERS = (
+    "timed out",
+    "timeout",
+    "connection",
+    "handshake",
+    "temporarily unavailable",
+    "ratelimited",
+    "rate limited",
+    "server_error",
+    "service_unavailable",
+    "internal_error",
+)
+
+
+def is_transient(error: Exception) -> bool:
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    if status is not None and (status == 429 or status >= 500):
+        return True
+    return any(m in str(error).lower() for m in TRANSIENT_MARKERS)
+
+
+def retry_after_seconds(error: Exception) -> float | None:
+    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    raw = headers.get("Retry-After") or headers.get("retry-after")
+    if isinstance(raw, (list, tuple)):
+        raw = raw[0] if raw else None
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def summarize(text: str, limit: int = 160) -> str:
