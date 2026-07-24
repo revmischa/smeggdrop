@@ -99,8 +99,16 @@ class SafeTclInterp:
     def eval_limited(self, script, seconds: int) -> str:
         """Evaluate with a wall-clock limit enforced by the master.
 
-        Slaves cannot modify their own limits, so sandboxed code can't
-        lift this.
+        Slaves cannot modify their own limits, so sandboxed code can't lift
+        this.
+
+        Deliberately not using tcl's `command` limit as well: its counter is
+        cumulative for the life of the interpreter, not per-eval, so any
+        fixed ceiling is permanently tripped by the first runaway loop and
+        every later eval fails with "command count limit exceeded". Tcl
+        checks the time limit at the same granularity anyway, so the clock
+        catches tight loops on its own; single huge allocations are handled
+        by the process memory cap (see hardening.py).
         """
         deadline = int(time.time()) + max(1, int(seconds))
         self.tk.call("interp", "limit", self.slave, "time", "-seconds", deadline)

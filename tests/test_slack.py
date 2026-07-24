@@ -239,3 +239,58 @@ def test_nick_cache_caches(engine):
     assert cache.resolve(client, "U1") == "alice"
     client.user_names.clear()
     assert cache.resolve(client, "U1") == "alice"
+
+
+def test_user_mentions_become_nicks(engine, cfg):
+    # procs were written for irc: `deathto winkie` must see the nick, not
+    # the raw <@U123> slack sends
+    client = StubClient(user_names={"U1": "alice", "U99": "winkie"})
+    handle_message_event(engine, client, event("tcl set x <@U99>"), cfg)
+    assert client.posted == [("C123", "```winkie```")]
+
+
+def test_mention_with_label_uses_the_label(engine, cfg):
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl set x <@U99|winkie>"), cfg)
+    assert client.posted == [("C123", "```winkie```")]
+
+
+@pytest.mark.parametrize(
+    "raw,resolved",
+    [
+        ("<#C5|general>", "#general"),
+        ("<!here>", "here"),
+        ("<!channel>", "channel"),
+        ("<!subteam^S1|@team>", "@team"),
+    ],
+)
+def test_other_mention_forms_resolved(engine, cfg, raw, resolved):
+    client = StubClient()
+    handle_message_event(engine, client, event(f"tcl set x {{{raw}}}"), cfg)
+    assert client.posted == [("C123", f"```{resolved}```")]
+
+
+@pytest.mark.parametrize(
+    "hostile",
+    ["<!channel>", "<!here>", "<!everyone>", "<@U404>", "<#C404|general>"],
+)
+def test_bot_cannot_be_used_as_a_ping_cannon(hostile):
+    # a hostile eval (or a saved proc holding mention markup) must not be
+    # able to notify a whole workspace on demand
+    messages = format_reply(True, f"wake up {hostile}", [])
+    assert len(messages) == 1
+    assert hostile not in messages[0]
+
+
+def test_replies_ask_slack_not_to_linkify(engine, cfg):
+    calls = []
+
+    class RecordingClient(StubClient):
+        def chat_postMessage(self, **kwargs):
+            calls.append(kwargs)
+            return super().chat_postMessage(channel=kwargs["channel"], text=kwargs["text"])
+
+    handle_message_event(engine, RecordingClient(), event("tcl expr {1 + 1}"), cfg)
+    assert calls[0]["parse"] == "none"
+    assert calls[0]["link_names"] is False
+    assert calls[0]["unfurl_links"] is False

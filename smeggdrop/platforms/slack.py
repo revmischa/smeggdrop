@@ -56,6 +56,12 @@ class SlackConfig:
         )
 
 
+USER_MENTION = re.compile(r"<@([UW][A-Z0-9]+)(?:\|([^>]*))?>")
+CHANNEL_MENTION = re.compile(r"<#[C][A-Z0-9]+(?:\|([^>]*))?>")
+BROADCAST_MENTION = re.compile(r"<!(here|channel|everyone)(?:\|[^>]*)?>")
+SPECIAL_MENTION = re.compile(r"<!([a-z_]+)(?:\^[^|>]*)?(?:\|([^>]*))?>")
+
+
 def unfuck_slack_message(text: str) -> str:
     """Undo slack's message mangling before trigger matching: unwrap
     <url> / <url|label> links, unwrap a fully-backticked message, and
@@ -65,6 +71,37 @@ def unfuck_slack_message(text: str) -> str:
     if m:
         text = m.group(1)
     return html.unescape(text)
+
+
+def resolve_mentions(text: str, client, nicks: "NickCache") -> str:
+    """Turn slack mention syntax into the plain nicks procs expect.
+
+    The saved procs were written for irc, where `deathto winkie` gets the
+    literal nick. Slack delivers `deathto <@U123>`, which procs then echo
+    back verbatim — unreadable, and it re-pings the target.
+    """
+    text = USER_MENTION.sub(
+        lambda m: m.group(2) or nicks.resolve(client, m.group(1)), text
+    )
+    text = CHANNEL_MENTION.sub(lambda m: f"#{m.group(1)}" if m.group(1) else "#channel", text)
+    text = BROADCAST_MENTION.sub(lambda m: m.group(1), text)
+    return SPECIAL_MENTION.sub(lambda m: m.group(2) or m.group(1), text)
+
+
+def defang_mentions(text: str) -> str:
+    """Neutralize anything in outgoing text that slack would turn into a
+    notification.
+
+    Otherwise the bot is a ping cannon: `tcl . <!channel> wake up` (or a
+    saved proc that stores mention markup) would notify an entire
+    workspace on demand, as many times as someone cares to ask. Code
+    fences alone are not a guarantee, so strip the syntax itself and post
+    with parse=none as well.
+    """
+    text = BROADCAST_MENTION.sub(lambda m: f"@​{m.group(1)}", text)
+    text = USER_MENTION.sub(lambda m: f"@​{m.group(2) or m.group(1)}", text)
+    text = CHANNEL_MENTION.sub(lambda m: f"#​{m.group(1) or 'channel'}", text)
+    return SPECIAL_MENTION.sub(lambda m: f"@​{m.group(2) or m.group(1)}", text)
 
 
 # mIRC formatting: bold/underline/reset/reverse, and colour (^C plus up to
@@ -79,7 +116,7 @@ def strip_irc_formatting(text: str) -> str:
 
 def format_reply(ok: bool, output: str, warnings: list[str]) -> list[str]:
     """Render an EvalResult as a list of slack messages (code blocks)."""
-    output = strip_irc_formatting(output)
+    output = defang_mentions(strip_irc_formatting(output))
     body = output if output else "(no output)"
     if not ok:
         body = f"error: {body}"
@@ -103,6 +140,24 @@ def format_reply(ok: bool, output: str, warnings: list[str]) -> list[str]:
         messages = messages[:MAX_MESSAGES]
         messages[-1] += "\n(truncated)"
     return [f"```{m}```" for m in messages]
+
+
+def retry_attempt(headers) -> int:
+    """Slack's retry counter: 0 (or absent) on first delivery, >=1 on retry.
+
+    Bolt stores header values as lists, and Socket Mode synthesizes the
+    header from the envelope's retry_attempt, so it is present even when
+    nothing has been retried.
+    """
+    raw = (headers or {}).get("x-slack-retry-num")
+    if isinstance(raw, (list, tuple)):
+        raw = raw[0] if raw else None
+    if raw is None or raw == "":
+        return 0
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 0
 
 
 class NickCache:
@@ -178,12 +233,14 @@ def handle_message_event(
 
     text = msg.get("text") or ""
     user_id = msg.get("user") or ""
-    nick = (nicks or NickCache()).resolve(client, user_id) if user_id else msg.get("username", "unknown")
+    resolver = nicks or NickCache()
+    nick = resolver.resolve(client, user_id) if user_id else msg.get("username", "unknown")
 
-    code = extract_code(unfuck_slack_message(text), cfg.trigger)
+    cleaned = resolve_mentions(unfuck_slack_message(text), client, resolver)
+    code = extract_code(cleaned, cfg.trigger)
     if code is None or not code.strip():
-        if chat_log is not None and text:
-            chat_log.append(channel, nick, user_id or None, text)
+        if chat_log is not None and cleaned:
+            chat_log.append(channel, nick, user_id or None, cleaned)
         return False
 
     channel_name = (channels or ChannelCache()).resolve(client, channel)
@@ -196,34 +253,68 @@ def handle_message_event(
             mask=user_id or None,
             loglines=chat_log.slurp(channel) if chat_log is not None else (),
         ),
-        say=lambda t: client.chat_postMessage(
-            channel=channel, text=strip_irc_formatting(t)
-        ),
+        say=lambda t: post(client, channel, defang_mentions(strip_irc_formatting(t))),
     )
+    # log the outcome, not just the input: an operator (or whoever is
+    # babysitting a fresh deploy) needs to see which evals are failing and
+    # what the sandbox refused, without reading the channel
+    if result.ok:
+        log.info("eval ok for %s: %s", nick, summarize(result.output))
+    else:
+        log.warning("eval error for %s: %s -> %s", nick, code[:80], summarize(result.output))
+    for warning in result.warnings:
+        log.warning("eval warning for %s: %s", nick, warning)
+
     for message in format_reply(result.ok, result.output, result.warnings):
-        client.chat_postMessage(channel=channel, text=message)
+        post(client, channel, message)
     return True
 
 
-def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
-    """Bolt app wired for FaaS: ack within 3s, eval in a lazy listener."""
+def post(client, channel: str, text: str):
+    """Post eval output. Everything here is attacker-influenced, so slack is
+    told not to linkify, unfurl, or resolve names in it."""
+    return client.chat_postMessage(
+        channel=channel,
+        text=text,
+        parse="none",
+        link_names=False,
+        unfurl_links=False,
+        unfurl_media=False,
+    )
+
+
+def summarize(text: str, limit: int = 160) -> str:
+    """One-line, length-capped rendering of eval output for logs."""
+    flat = " ".join(strip_irc_formatting(text or "").split())
+    return flat[:limit] + ("..." if len(flat) > limit else "")
+
+
+def build_app(engine: Engine, cfg: SlackConfig, *, lazy: bool = False, **app_kwargs):
+    """Build the bolt app.
+
+    lazy=True is the FaaS wiring: ack inside slack's 3s window, then do the
+    eval in a lazy listener, which on Lambda means a second invocation of
+    the function. Off FaaS that machinery buys nothing (bolt just runs the
+    lazy listener in its thread pool), so the socket-mode path registers an
+    ordinary listener and lets bolt ack before running it.
+    """
     from slack_bolt import App
 
-    app = App(process_before_response=True, **app_kwargs)
+    app = App(process_before_response=lazy, **app_kwargs)
     nicks = NickCache()
     channels = ChannelCache()
     chat_log = ChatLog()
 
     @app.middleware
     def drop_retries(request, next):
-        # a retried delivery means our ack was slow, not that the eval
-        # didn't happen; re-running user code is worse than dropping
-        if request.headers.get("x-slack-retry-num"):
+        # A retried delivery means our ack was slow, not that the eval
+        # didn't happen; re-running user code is worse than dropping.
+        # The header is present on FIRST delivery too, valued 0 — testing
+        # for presence alone silently drops every single message.
+        if retry_attempt(request.headers) > 0:
+            log.info("dropping retried delivery")
             return
         next()
-
-    def ack_only(ack):
-        ack()
 
     def evaluate(event, client, logger):
         try:
@@ -231,7 +322,10 @@ def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
         except Exception:
             logger.exception("eval handler failed")
 
-    app.event("message")(ack=ack_only, lazy=[evaluate])
+    if lazy:
+        app.event("message")(ack=lambda ack: ack(), lazy=[evaluate])
+    else:
+        app.event("message")(evaluate)
     return app
 
 

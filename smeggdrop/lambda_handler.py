@@ -33,7 +33,7 @@ def _handler():
         limits=Limits(eval_time_seconds=cfg.time_limit),
         words_file=cfg.words_file,
     )
-    return SlackRequestHandler(build_app(engine, cfg))
+    return SlackRequestHandler(build_app(engine, cfg, lazy=True))
 
 
 def handler(event, context):

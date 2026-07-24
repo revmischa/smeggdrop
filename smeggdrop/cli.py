@@ -38,10 +38,15 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    if args.verbose:
+        level = logging.DEBUG
+    elif args.command == "slack":
+        # running as a bot: the operator wants to see what is being
+        # evaluated and by whom, not just failures
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s: %(message)s")
 
     if args.command == "repl":
         return cmd_repl(args)
@@ -94,8 +99,10 @@ def cmd_repl(args) -> int:
 
 
 def cmd_slack(args) -> int:
+    from smeggdrop.hardening import apply_memory_limit
     from smeggdrop.platforms.slack import SlackConfig, run_socket_mode
 
+    apply_memory_limit()
     cfg = SlackConfig.from_env()
     engine = Engine(
         FileStateStore(args.state),

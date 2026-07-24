@@ -148,6 +148,9 @@ def audit_state(
             interp.set_context(
                 nick="audit", mask="audit@audit", channel="#audit",
                 command="", nicks=("audit",),
+                # a plausible line of chatter: procs that read [log] should
+                # exercise their real path, not fail on an unset variable
+                log=((0, "audit", "audit@audit", "hello"),),
             )
             interp.set_command_vars(nick="audit", mask="audit@audit", channel="#audit", line="")
             for name, report in reports.items():

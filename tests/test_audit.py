@@ -21,6 +21,7 @@ def store(tmp_path):
             # bootstrap aliases `cache` globally after state load, hiding this
             "cache": "{} {return stale}",
             "fetches": "{} {http get http://example.com/}",
+            "reads_log": "{} {llength [log]}",
         },
     )
     s.save_many("vars", {"ok_var": "scalar {1}", "bad_var": "bogus {1}"})
@@ -58,6 +59,9 @@ def test_audit_full_report(store):
     assert procs["cache"].shadowed
     assert not procs["cache"].ran
 
+    # procs that read [log] get a plausible line, not an unset variable
+    assert procs["reads_log"].ran and procs["reads_log"].run_ok
+
     # reached the (stubbed) network: working proc, not a failure
     assert procs["fetches"].needs_network
     assert procs["fetches"].run_ok is None
@@ -70,7 +74,7 @@ def test_audit_full_report(store):
 def test_audit_summary_counts(store):
     report = audit_state(store)
     summary = report.summary()
-    assert summary["total"] == 8
+    assert summary["total"] == 9
     assert summary["load_failures"] == 1
     assert summary["shadowed"] == 1
     assert summary["needs_network"] == 1
