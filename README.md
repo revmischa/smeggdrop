@@ -125,6 +125,12 @@ rather than port breakage: helpers their authors deleted years ago,
 services that no longer resolve (`i.buttes.org`, `magick.buttes.org`), and
 a few deliberate infinite loops.
 
+The failure count is also pessimistic in a way that can't be automated
+away: plenty of procs raise on purpose, because the error message is the
+joke — `ncock 24` answers "COCK SIZE OFF THE CHARTS", and a handful more
+refuse with `please see a dentist for further assistance`. Those are
+working procs that the audit has no way to tell apart from broken ones.
+
 ## Security model
 
 All chat input is untrusted and gets evaluated anyway — that's the product —
