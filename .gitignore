@@ -1,2 +1,10 @@
 app/lib/Shittybot/Logger.pm
 vol
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+dist/
+state-local*/
+state/
