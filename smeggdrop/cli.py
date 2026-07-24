@@ -29,7 +29,12 @@ def main(argv: list[str] | None = None) -> int:
     audit = sub.add_parser("audit", help="check every saved proc: loads? runs? dead refs?")
     audit.add_argument("--json", action="store_true", help="full report as json")
     audit.add_argument("--no-run", action="store_true", help="skip calling zero-arg procs")
-    audit.add_argument("--time-limit", type=int, default=2, help="seconds per proc call")
+    audit.add_argument(
+        "--time-limit",
+        type=int,
+        default=Limits.eval_time_seconds,
+        help="seconds per proc call (default: same as the bot allows)",
+    )
     audit.add_argument(
         "--call-with-args",
         action="store_true",
@@ -156,6 +161,7 @@ def cmd_audit(args) -> int:
             f"{summary['needs_network']} need network, "
             f"{summary['run_failures']} failed, "
             f"{summary['arg_mismatch']} wanted different arguments, "
+            f"{summary['timed_out']} timed out, "
             f"{summary['load_failures']} failed to load, "
             f"{summary['broken_refs']} reference dead commands, "
             f"{summary['var_load_failures']} var load failures"

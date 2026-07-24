@@ -53,6 +53,7 @@ class ProcAudit:
     needs_network: bool = False  # only "failed" because audit stubs the network
     arity: int | None = None  # required args, when it takes any
     arg_mismatch: bool = False  # failed on the audit's dummy args, not broken
+    timed_out: bool = False  # too slow for the audit's limit, not necessarily broken
 
     @property
     def healthy(self) -> bool:
@@ -76,6 +77,7 @@ class AuditReport:
             "run_failures": sum(1 for p in self.procs if p.run_ok is False),
             "needs_network": sum(1 for p in self.procs if p.needs_network),
             "arg_mismatch": sum(1 for p in self.procs if p.arg_mismatch),
+            "timed_out": sum(1 for p in self.procs if p.timed_out),
             "var_load_failures": len(self.var_load_errors),
         }
 
@@ -185,6 +187,12 @@ def audit_state(
                         # working proc, the audit just won't do network
                         report.needs_network = True
                         report.run_ok = None
+                    elif "time limit exceeded" in error:
+                        # slow, or an infinite loop; the audit can't tell
+                        # which, and its limit is tighter than the bot's
+                        report.timed_out = True
+                        report.run_ok = None
+                        report.run_error = error
                     elif required and _looks_like_arg_mismatch(error):
                         report.arg_mismatch = True
                         report.run_ok = None

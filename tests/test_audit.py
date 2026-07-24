@@ -136,3 +136,19 @@ def test_audit_without_call_with_args_skips_them(store):
     procs = by_name(audit_state(store))
     assert not procs["greets"].ran
     assert procs["greets"].arity == 1
+
+
+def test_timeouts_are_classified_separately(tmp_path):
+    from smeggdrop.state import FileStateStore
+
+    slow = FileStateStore(tmp_path)
+    slow.save_many("procs", {"spins": "{} {while 1 {}}"})
+
+    report = audit_state(slow, time_limit=1)
+    spins = by_name(report)["spins"]
+    assert spins.timed_out
+    # too slow is not the same as broken: the bot allows longer than the
+    # audit does, and some of these procs are merely heavy
+    assert spins.run_ok is None
+    assert report.summary()["timed_out"] == 1
+    assert report.summary()["run_failures"] == 0

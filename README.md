@@ -90,17 +90,18 @@ required argument so the whole library gets exercised rather than just the
 zero-argument part, and sorts "wanted a number, got `test`" into its own
 bucket instead of counting it as breakage. Fix, re-run, repeat.
 
-Against the hardchats state (6,604 procs accumulated 2007-2017):
+Against the hardchats state (6,603 procs accumulated 2007-2017):
 
 | | procs |
 |---|---|
-| ran clean | 5,148 |
-| reached the network (stubbed in audit) | 690 |
-| failed | 516 |
-| wanted different arguments | 249 |
+| ran clean | 5,256 |
+| reached the network (stubbed in audit) | 729 |
+| failed | 346 |
+| wanted different arguments than the audit passes | 233 |
+| timed out | 38 |
 | failed to load | 0 |
 
-So ~88% demonstrably work. Nearly all remaining failures are data rot
+So ~91% demonstrably work. Nearly all remaining failures are data rot
 rather than port breakage: helpers their authors deleted years ago,
 services that no longer resolve (`i.buttes.org`, `magick.buttes.org`), and
 a few deliberate infinite loops.
