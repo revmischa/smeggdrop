@@ -47,20 +47,29 @@ class FileStateStore:
 
     def load(self, category: str) -> dict[str, str]:
         index = self._read_index(category)
-        self._indices[category] = index
         out: dict[str, str] = {}
+        deleted: list[str] = []
         for name, sha in index.items():
             path = self.root / category / sha
             try:
                 data = path.read_text(encoding="utf-8", errors="replace")
             except FileNotFoundError:
+                # damage, not deletion — keep the entry so the loss stays
+                # visible (and recoverable if the file turns up)
                 log.warning("%s/%s: data file %s missing", category, name, sha)
                 continue
             if not data:
-                # deletion marker; clean it up like the perl loader did
+                # deletion marker: clean up the file like the perl loader
+                # did, and drop the index entry so deletes don't accumulate
                 path.unlink(missing_ok=True)
+                deleted.append(name)
                 continue
             out[name] = data
+        for name in deleted:
+            del index[name]
+        self._indices[category] = index
+        if deleted:
+            self._write_index(category, index)
         return out
 
     def save_many(self, category: str, changes: Mapping[str, str | None]) -> None:

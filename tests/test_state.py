@@ -30,15 +30,33 @@ def test_legacy_perl_layout_loads(tmp_path):
 
 def test_deletion_writes_empty_file_and_skips_on_load(tmp_path):
     store = FileStateStore(tmp_path)
-    store.save_many("vars", {"x": "scalar {1}"})
+    store.save_many("vars", {"x": "scalar {1}", "keep": "scalar {2}"})
     store.save_many("vars", {"x": None})
 
     sha = name_sha1("x")
     assert (tmp_path / "vars" / sha).read_text() == ""
     fresh = FileStateStore(tmp_path)
-    assert fresh.load("vars") == {}
-    # loader cleans up the marker file like the perl one did
+    assert fresh.load("vars") == {"keep": "scalar {2}"}
+    # loader cleans up the marker file like the perl one did, and prunes
+    # the index entry so deletions don't accumulate
     assert not (tmp_path / "vars" / sha).exists()
+    assert "{x}" not in (tmp_path / "vars" / "_index").read_text()
+
+    # a save after the pruned load must not resurrect the entry
+    fresh.save_many("vars", {"other": "scalar {3}"})
+    third = FileStateStore(tmp_path)
+    assert third.load("vars") == {"keep": "scalar {2}", "other": "scalar {3}"}
+
+
+def test_missing_data_file_keeps_index_entry(tmp_path):
+    # damage (file gone, no deletion marker) must stay visible, not be pruned
+    store = FileStateStore(tmp_path)
+    store.save_many("procs", {"lost": "{} {return x}"})
+    (tmp_path / "procs" / name_sha1("lost")).unlink()
+
+    fresh = FileStateStore(tmp_path)
+    assert fresh.load("procs") == {}
+    assert "{lost}" in (tmp_path / "procs" / "_index").read_text()
 
 
 def test_malformed_index_lines_skipped(tmp_path):
