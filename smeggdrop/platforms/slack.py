@@ -20,6 +20,7 @@ import html
 import logging
 import os
 import re
+from collections import OrderedDict
 from dataclasses import dataclass
 
 from smeggdrop.engine import Engine, EvalRequest
@@ -140,6 +141,39 @@ def format_reply(ok: bool, output: str, warnings: list[str]) -> list[str]:
         messages = messages[:MAX_MESSAGES]
         messages[-1] += "\n(truncated)"
     return [f"```{m}```" for m in messages]
+
+
+class EventDeduper:
+    """Remembers which slack event ids have been taken on.
+
+    Retries do not mean "already done" — slack retries when it got no ack,
+    which is exactly what happens while the bot is restarting. Dropping
+    every retry loses those messages silently. Dropping by event id instead
+    is the property actually wanted: run each event at most once, but do
+    run one whose first delivery we never saw.
+    """
+
+    def __init__(self, capacity: int = 2048):
+        self.capacity = capacity
+        self._seen: OrderedDict[str, None] = OrderedDict()
+
+    def claim(self, event_id: str | None) -> bool:
+        """Record an event id. False if it was already claimed."""
+        if not event_id:
+            return True  # nothing to dedupe on; better to run than to drop
+        if event_id in self._seen:
+            self._seen.move_to_end(event_id)
+            return False
+        self._seen[event_id] = None
+        while len(self._seen) > self.capacity:
+            self._seen.popitem(last=False)
+        return True
+
+
+def event_id_of(body) -> str | None:
+    if isinstance(body, dict):
+        return body.get("event_id")
+    return None
 
 
 def retry_attempt(headers) -> int:
@@ -304,15 +338,22 @@ def build_app(engine: Engine, cfg: SlackConfig, *, lazy: bool = False, **app_kwa
     nicks = NickCache()
     channels = ChannelCache()
     chat_log = ChatLog()
+    deduper = EventDeduper()
 
     @app.middleware
-    def drop_retries(request, next):
-        # A retried delivery means our ack was slow, not that the eval
-        # didn't happen; re-running user code is worse than dropping.
-        # The header is present on FIRST delivery too, valued 0 — testing
-        # for presence alone silently drops every single message.
-        if retry_attempt(request.headers) > 0:
-            log.info("dropping retried delivery")
+    def drop_duplicates(request, next):
+        # Run each event at most once. Note the retry header is present on
+        # first delivery too, valued 0, so testing for its presence drops
+        # everything; and a retry whose original we never handled (bot was
+        # restarting) still deserves to run, so key off the event id rather
+        # than the retry counter.
+        event_id = event_id_of(request.body)
+        if not deduper.claim(event_id):
+            log.info(
+                "dropping duplicate delivery of %s (retry %d)",
+                event_id,
+                retry_attempt(request.headers),
+            )
             return
         next()
 

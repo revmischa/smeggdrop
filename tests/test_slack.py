@@ -294,3 +294,26 @@ def test_replies_ask_slack_not_to_linkify(engine, cfg):
     assert calls[0]["parse"] == "none"
     assert calls[0]["link_names"] is False
     assert calls[0]["unfurl_links"] is False
+
+
+def test_event_deduper_claims_once():
+    from smeggdrop.platforms.slack import EventDeduper
+
+    d = EventDeduper()
+    assert d.claim("Ev1") is True
+    assert d.claim("Ev1") is False
+    assert d.claim("Ev2") is True
+    # no id to dedupe on: run it rather than lose it
+    assert d.claim(None) is True
+    assert d.claim(None) is True
+
+
+def test_event_deduper_is_bounded():
+    from smeggdrop.platforms.slack import EventDeduper
+
+    d = EventDeduper(capacity=3)
+    for i in range(10):
+        assert d.claim(f"Ev{i}") is True
+    assert len(d._seen) == 3
+    assert d.claim("Ev9") is False  # recent ids still remembered
+    assert d.claim("Ev0") is True  # oldest evicted

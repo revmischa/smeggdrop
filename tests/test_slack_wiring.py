@@ -67,14 +67,14 @@ def fake_authorize(**kwargs):
     )
 
 
-def event_request(text, channel="C123", retry_num="0"):
+def event_request(text, channel="C123", retry_num="0", event_id="Ev1"):
     from slack_bolt.request import BoltRequest
 
     body = {
         "team_id": "T1",
         "api_app_id": "A1",
         "type": "event_callback",
-        "event_id": "Ev1",
+        "event_id": event_id,
         "event_time": 1,
         "event": {
             "type": "message",
@@ -141,11 +141,22 @@ def test_missing_retry_header_is_fine(engine, posted):
     assert wait_for(posted, 1) == [("C123", "```2```")]
 
 
-def test_actual_retries_are_dropped(engine, posted):
+def test_duplicate_delivery_runs_once(engine, posted):
     app = make_app(engine)
-    app.dispatch(event_request("tcl expr {1 + 1}", retry_num="2"))
+    app.dispatch(event_request("tcl expr {1 + 1}", event_id="EvDup"))
+    assert wait_for(posted, 1) == [("C123", "```2```")]
+    # slack redelivering the same event must not re-run it
+    app.dispatch(event_request("tcl expr {1 + 1}", retry_num="1", event_id="EvDup"))
     settle()
-    assert posted == []
+    assert len(posted) == 1
+
+
+def test_retry_of_an_unseen_event_still_runs(engine, posted):
+    # the case that was silently losing messages: the first delivery went
+    # unacked (bot restarting), so the retry is the only chance to run it
+    app = make_app(engine)
+    app.dispatch(event_request("tcl expr {1 + 1}", retry_num="1", event_id="EvMissed"))
+    assert wait_for(posted, 1) == [("C123", "```2```")]
 
 
 def test_non_triggers_are_ignored(engine, posted):
