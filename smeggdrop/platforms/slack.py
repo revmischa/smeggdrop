@@ -20,7 +20,7 @@ import html
 import logging
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from smeggdrop.engine import Engine, EvalRequest
 from smeggdrop.platforms import DEFAULT_TRIGGER, chunk_output, extract_code
