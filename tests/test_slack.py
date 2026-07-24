@@ -317,3 +317,14 @@ def test_event_deduper_is_bounded():
     assert len(d._seen) == 3
     assert d.claim("Ev9") is False  # recent ids still remembered
     assert d.claim("Ev0") is True  # oldest evicted
+
+
+def test_capitalized_trigger_works_end_to_end(engine, cfg):
+    client = StubClient()
+    assert handle_message_event(engine, client, event("Tcl expr {6 * 7}"), cfg)
+    assert client.posted == [("C123", "```42```")]
+
+
+def test_env_trigger_is_also_case_insensitive():
+    cfg = SlackConfig.from_env({"SMEGGDROP_TRIGGER": r"^!eval\s"})
+    assert cfg.trigger.search("!EVAL puts hi")

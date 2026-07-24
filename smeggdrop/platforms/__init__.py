@@ -13,8 +13,10 @@ import re
 import time
 from collections import deque
 
-# same default the perl bot shipped: "tcl expr 1+1"
-DEFAULT_TRIGGER = re.compile(r"^\s*tcl\s")
+# same default the perl bot shipped: "tcl expr 1+1", but case-insensitive:
+# phone keyboards autocapitalize the first word, so half the messages from
+# mobile arrive as "Tcl ..." and would otherwise be silently ignored
+DEFAULT_TRIGGER = re.compile(r"^\s*tcl\s", re.IGNORECASE)
 
 
 def extract_code(text: str, trigger: re.Pattern[str] = DEFAULT_TRIGGER) -> str | None:

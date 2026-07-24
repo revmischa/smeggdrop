@@ -48,7 +48,10 @@ class SlackConfig:
             c.strip() for c in env.get("SMEGGDROP_CHANNELS", "").split(",") if c.strip()
         )
         return cls(
-            trigger=re.compile(env.get("SMEGGDROP_TRIGGER", DEFAULT_TRIGGER.pattern)),
+            # case-insensitive like the default: chat clients capitalize
+            trigger=re.compile(
+                env.get("SMEGGDROP_TRIGGER", DEFAULT_TRIGGER.pattern), re.IGNORECASE
+            ),
             channels=channels,
             state_dir=env.get("SMEGGDROP_STATE", "state"),
             time_limit=int(env.get("SMEGGDROP_TIME_LIMIT", "5")),
