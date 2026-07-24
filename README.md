@@ -38,13 +38,28 @@ Create a Slack app with bot scopes `chat:write`, `users:read`,
 subscribe to the `message.channels` (and `message.groups`) events. Then
 say `tcl expr {6 * 7}` in a channel the bot is in.
 
+[`slack-app-manifest.yml`](slack-app-manifest.yml) has all of that ready
+to paste into *Create New App → From an app manifest*.
+
 Local development uses Socket Mode (no public endpoint; enable it in the
-app config and mint an `xapp-` token):
+app config and mint an `xapp-` token with `connections:write`). Put the
+credentials in `.env` (gitignored) and use the dev script:
 
 ```sh
-export SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-...
-uv run --extra slack smeggdrop --state state-local slack
+cat > .env <<'EOF'
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+EOF
+
+./run-slack-dev.sh state-local          # or any state dir
 ```
+
+Slack-specific behaviour worth knowing: mentions are resolved to plain
+nicks on the way in, so procs written for irc see `deathto winkie` rather
+than `deathto <@U03S5JZ7U>`; mIRC colour codes are stripped from replies
+(Slack renders none of them, and the digits would litter the ascii art);
+and `[channel]` reports `#name`, not the channel id, because saved procs
+print it and key cache buckets off it.
 
 Production runs the Events API on Lambda from a container image
 ([`Dockerfile.lambda`](Dockerfile.lambda)):
@@ -59,9 +74,13 @@ Production runs the Events API on Lambda from a container image
 
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
-`SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`.
-Retried Slack deliveries are dropped rather than re-evaluated, and request
-signatures are verified by bolt.
+`SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`,
+`SMEGGDROP_MEMORY_MB` (default 2048, 0 disables).
+
+Request signatures are verified by bolt. Retried deliveries are dropped
+rather than re-evaluated — running someone's code twice is worse than
+missing it — which does mean a message sent while the bot is restarting is
+lost rather than executed late.
 
 `audit` exists so the port can be verified against real accumulated state:
 it loads everything into a throwaway sandbox (nothing persisted, network
@@ -89,12 +108,29 @@ so containment is layered:
 - persistence is vetted: per-eval caps on change count and value size, and
   names that would corrupt the index format are refused (state files are
   named by sha1, so names never become paths)
+- the process address space is capped (`SMEGGDROP_MEMORY_MB`, default 2 GB).
+  Tcl has no per-interp memory limit and a single command —
+  `string repeat x 40000000000` — outruns both the clock and any command
+  counter, so this is what stops one eval from taking the host down with
+  it. The bot dies and restarts instead; state is on disk, restarts are
+  cheap.
+- outgoing text has Slack mention syntax defanged and posts with
+  `parse=none`, so the bot can't be driven as an `@channel` ping cannon
 
-Residual risks worth knowing: DNS rebinding can slip past the fetcher's
-resolve-time checks (run the bot with no reachable internal network — a
-Lambda outside any VPC — and it's moot), and Tcl has no per-interp memory
-cap (a hostile eval can balloon the process; process-level limits are the
-backstop).
+`tests/test_sandbox_escape.py` is the adversarial suite: token theft via
+`::env`, filesystem reads, LAN and cloud-metadata SSRF, nested-interp
+escapes, limit lifting, `exit`, path traversal, flooding.
+
+Two notes on limits, both learned the hard way. Tcl's `interp limit
+... command` counter is **cumulative for the interpreter's lifetime**, not
+per-eval, so a fixed ceiling is permanently tripped by the first runaway
+loop and every later eval fails — one `while 1 {}` becomes a channel-wide
+denial of service. The wall-clock limit is checked at the same granularity
+and resets per eval, so that is the one to rely on.
+
+Residual risk worth knowing: DNS rebinding can slip past the fetcher's
+resolve-time checks. Run the bot somewhere with no reachable internal
+network (a Lambda outside any VPC) and it's moot.
 
 ## Architecture
 
@@ -104,6 +140,7 @@ smeggdrop/
   engine.py     versioned eval: snapshot -> eval -> diff -> persist
   state.py      file store, byte-compatible with the perl layout
   security.py   SSRF-guarded fetcher behind core::curl
+  hardening.py  process-level containment (address space cap)
   audit.py      state verification (the `audit` subcommand)
   platforms/    adapters; the engine never imports platform SDKs
   tcl/          bootstrap sourced into the slave (from the perl tree)
