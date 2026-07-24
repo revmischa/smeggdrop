@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +55,9 @@ class EvalRequest:
     channel: str | None = None
     mask: str | None = None
     nicks: tuple[str, ...] = ()
+    # recent channel chatter as (unix_ts, nick, mask, text) rows; reachable
+    # in the sandbox via [log]
+    loglines: tuple[tuple, ...] = ()
 
 
 @dataclass
@@ -63,11 +67,17 @@ class EvalResult:
     warnings: list[str] = field(default_factory=list)
 
 
+# tcl sets these automatically whenever an error is caught; persisting them
+# is pure churn (the legacy bot did, which is how junk errorInfo entries
+# ended up in old state dirs)
+AUTOMATIC_VARS = frozenset({"errorInfo", "errorCode"})
+
+
 def diff_category(pre: dict[str, str], post: dict[str, str]) -> dict[str, str | None]:
     """Changed entries between snapshots; None means deleted."""
     changed: dict[str, str | None] = {}
     for name in pre.keys() | post.keys():
-        if name.startswith("context::"):
+        if name.startswith("context::") or name in AUTOMATIC_VARS:
             continue
         a, b = pre.get(name), post.get(name)
         if a != b:
@@ -129,6 +139,8 @@ class Engine:
                 "core::print": self._b_print,
                 "core::sha1": self._b_sha1,
                 "core::curl": self._b_curl,
+                "core::http": self._b_http,
+                "core::urlencode": self._b_urlencode,
                 "core::bot_say": self._b_say,
                 "core::words": self._b_words,
             },
@@ -158,6 +170,7 @@ class Engine:
                 channel=req.channel,
                 command=req.code,
                 nicks=req.nicks,
+                log=req.loglines,
             )
             interp.set_command_vars(
                 nick=req.nick, mask=req.mask, channel=req.channel, line=req.code
@@ -221,14 +234,28 @@ class Engine:
         return hashlib.sha1(str(text).encode("utf-8")).hexdigest()
 
     def _b_curl(self, url="") -> tuple[str, str]:
+        status, _headers, body = self._fetch("core::curl", str(url))
+        return (str(status), body)
+
+    def _b_http(self, method="GET", url="", body="") -> tuple[str, tuple, str]:
+        """[code {header value ...} body] — the shape the old http.tcl returned."""
+        status, headers, resp_body = self._fetch("core::http", str(url), str(method), str(body))
+        flat: list[str] = []
+        for k, v in headers.items():
+            flat.extend((k, v))
+        return (str(status), tuple(flat), resp_body)
+
+    def _fetch(self, who: str, url: str, method: str = "GET", body: str | None = None):
         self._curl_calls += 1
         if self._curl_calls > self.limits.curl_max_calls:
-            raise TclError(f"core::curl: limit of {self.limits.curl_max_calls} fetches per eval")
+            raise TclError(f"{who}: limit of {self.limits.curl_max_calls} fetches per eval")
         try:
-            status, body = self.fetcher.fetch(str(url))
+            return self.fetcher.fetch(url, method=method, body=body)
         except FetchError as e:
-            raise TclError(f"core::curl: {e}") from e
-        return (str(status), body)
+            raise TclError(f"{who}: {e}") from e
+
+    def _b_urlencode(self, text="") -> str:
+        return urllib.parse.quote_plus(str(text))
 
     def _b_say(self, *args) -> str:
         self._say_calls += 1

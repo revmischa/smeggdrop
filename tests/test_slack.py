@@ -167,6 +167,23 @@ def test_config_from_env():
     assert cfg.app_token == "xapp-1"
 
 
+def test_chat_log_feeds_eval_and_drains(engine, cfg):
+    from smeggdrop.platforms import ChatLog
+
+    client = StubClient(user_names={"U1": "alice", "U2": "bob"})
+    chat_log = ChatLog()
+
+    assert not handle_message_event(
+        engine, client, {**event("what a day"), "user": "U2"}, cfg, chat_log=chat_log
+    )
+    handle_message_event(engine, client, event("tcl lindex [log] 0 3"), cfg, chat_log=chat_log)
+    assert client.posted == [("C123", "```what a day```")]
+
+    client.posted.clear()
+    handle_message_event(engine, client, event("tcl llength [log]"), cfg, chat_log=chat_log)
+    assert client.posted == [("C123", "```0```")]  # slurped by the previous eval
+
+
 def test_nick_cache_caches(engine):
     client = StubClient(user_names={"U1": "alice"})
     cache = NickCache()

@@ -1,6 +1,19 @@
 import re
 
-from smeggdrop.platforms import DEFAULT_TRIGGER, chunk_output, extract_code
+from smeggdrop.platforms import DEFAULT_TRIGGER, ChatLog, chunk_output, extract_code
+
+
+def test_chat_log_accumulates_and_slurps():
+    log = ChatLog(max_lines=3)
+    for i in range(5):
+        log.append("#chan", f"nick{i}", None, f"msg {i}")
+    log.append("#other", "x", "x@y", "elsewhere")
+
+    lines = log.slurp("#chan")
+    assert [l[3] for l in lines] == ["msg 2", "msg 3", "msg 4"]  # bounded
+    assert all(len(l) == 4 for l in lines)
+    assert log.slurp("#chan") == ()  # drained
+    assert log.slurp("#other")[0][1] == "x"  # channels are independent
 
 
 def test_extract_code_default_trigger():

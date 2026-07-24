@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import urllib.parse
 from dataclasses import asdict, dataclass, field
 
 from smeggdrop.interp import SafeTclInterp, TclError
@@ -43,11 +44,13 @@ class ProcAudit:
     name: str
     loaded: bool = True
     load_error: str | None = None
+    shadowed: bool = False  # a bootstrap alias (cache, meta, ...) hides it
     broken_refs: list[str] = field(default_factory=list)
     unknown_refs: list[str] = field(default_factory=list)
     ran: bool = False
     run_ok: bool | None = None
     run_error: str | None = None
+    needs_network: bool = False  # only "failed" because audit stubs the network
 
     @property
     def healthy(self) -> bool:
@@ -63,10 +66,12 @@ class AuditReport:
         return {
             "total": len(self.procs),
             "load_failures": sum(1 for p in self.procs if not p.loaded),
+            "shadowed": sum(1 for p in self.procs if p.shadowed),
             "broken_refs": sum(1 for p in self.procs if p.broken_refs),
             "unknown_refs": sum(1 for p in self.procs if p.unknown_refs),
             "ran": sum(1 for p in self.procs if p.ran),
             "run_failures": sum(1 for p in self.procs if p.run_ok is False),
+            "needs_network": sum(1 for p in self.procs if p.needs_network),
             "var_load_failures": len(self.var_load_errors),
         }
 
@@ -92,7 +97,9 @@ def audit_state(
             "core::print": lambda *a: "",
             "core::sha1": lambda t="": hashlib.sha1(str(t).encode()).hexdigest(),
             "core::bot_say": lambda *a: said.append(" ".join(str(x) for x in a)) or "",
-            "core::curl": _curl_stub,
+            "core::curl": _network_stub,
+            "core::http": _network_stub,
+            "core::urlencode": lambda t="": urllib.parse.quote_plus(str(t)),
             "core::words": lambda: (),
         },
     )
@@ -119,7 +126,14 @@ def audit_state(
         for name, report in reports.items():
             if not report.loaded:
                 continue
-            body = interp.eval(("info", "body", name))
+            try:
+                body = interp.eval(("info", "body", name))
+            except TclError:
+                # a bootstrap alias with the same global name replaced this
+                # saved proc after load, exactly like the perl loader did;
+                # the saved body is inert so there's nothing to scan or run
+                report.shadowed = True
+                continue
             for ref in sorted(set(CMD_POSITION.findall(body))):
                 if ref == name:
                     continue
@@ -137,23 +151,34 @@ def audit_state(
             )
             interp.set_command_vars(nick="audit", mask="audit@audit", channel="#audit", line="")
             for name, report in reports.items():
-                if not report.loaded or not _callable_without_args(interp, name):
+                if not report.loaded or report.shadowed:
+                    continue
+                if not _callable_without_args(interp, name):
                     continue
                 report.ran = True
                 try:
                     interp.eval_limited((name,), time_limit)
                     report.run_ok = True
                 except TclError as e:
-                    report.run_ok = False
-                    report.run_error = str(e)
+                    if NETWORK_STUB_MARKER in str(e):
+                        # it made it all the way to the fetcher; that's a
+                        # working proc, the audit just won't do network
+                        report.needs_network = True
+                        report.run_ok = None
+                    else:
+                        report.run_ok = False
+                        report.run_error = str(e)
 
         return AuditReport(list(reports.values()), var_errors)
     finally:
         interp.close()
 
 
-def _curl_stub(*args):
-    raise TclError("core::curl is disabled during audit")
+NETWORK_STUB_MARKER = "network is disabled during audit"
+
+
+def _network_stub(*args):
+    raise TclError(NETWORK_STUB_MARKER)
 
 
 def _callable_without_args(interp: SafeTclInterp, name: str) -> bool:

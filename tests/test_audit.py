@@ -18,6 +18,9 @@ def store(tmp_path):
             "with_args": "{a b} {expr {$a + $b}}",
             "defaulted": '{{who world}} {return "hi $who"}',
             "wont_load": "{} {return {unbalanced",
+            # bootstrap aliases `cache` globally after state load, hiding this
+            "cache": "{} {return stale}",
+            "fetches": "{} {http get http://example.com/}",
         },
     )
     s.save_many("vars", {"ok_var": "scalar {1}", "bad_var": "bogus {1}"})
@@ -51,6 +54,15 @@ def test_audit_full_report(store):
     assert not procs["wont_load"].loaded
     assert procs["wont_load"].load_error
 
+    # shadowed by the bootstrap alias, not scanned or run, doesn't crash
+    assert procs["cache"].shadowed
+    assert not procs["cache"].ran
+
+    # reached the (stubbed) network: working proc, not a failure
+    assert procs["fetches"].needs_network
+    assert procs["fetches"].run_ok is None
+    assert procs["fetches"].healthy
+
     assert "bad_var" in report.var_load_errors
     assert "ok_var" not in report.var_load_errors
 
@@ -58,8 +70,10 @@ def test_audit_full_report(store):
 def test_audit_summary_counts(store):
     report = audit_state(store)
     summary = report.summary()
-    assert summary["total"] == 6
+    assert summary["total"] == 8
     assert summary["load_failures"] == 1
+    assert summary["shadowed"] == 1
+    assert summary["needs_network"] == 1
     assert summary["broken_refs"] == 1
     assert summary["run_failures"] == 2
     assert summary["var_load_failures"] == 1

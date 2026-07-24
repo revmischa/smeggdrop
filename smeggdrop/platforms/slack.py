@@ -23,7 +23,7 @@ import re
 from dataclasses import dataclass
 
 from smeggdrop.engine import Engine, EvalRequest
-from smeggdrop.platforms import DEFAULT_TRIGGER, chunk_output, extract_code
+from smeggdrop.platforms import DEFAULT_TRIGGER, ChatLog, chunk_output, extract_code
 
 log = logging.getLogger(__name__)
 
@@ -118,7 +118,12 @@ class NickCache:
 
 
 def handle_message_event(
-    engine: Engine, client, event: dict, cfg: SlackConfig, nicks: NickCache | None = None
+    engine: Engine,
+    client,
+    event: dict,
+    cfg: SlackConfig,
+    nicks: NickCache | None = None,
+    chat_log: ChatLog | None = None,
 ) -> bool:
     """Process one message event. Returns True if an eval ran."""
     subtype = event.get("subtype")
@@ -136,16 +141,24 @@ def handle_message_event(
         return False
 
     text = msg.get("text") or ""
-    code = extract_code(unfuck_slack_message(text), cfg.trigger)
-    if code is None or not code.strip():
-        return False
-
     user_id = msg.get("user") or ""
     nick = (nicks or NickCache()).resolve(client, user_id) if user_id else msg.get("username", "unknown")
-    log.info("eval from %s in %s: %r", nick, channel, code[:120])
 
+    code = extract_code(unfuck_slack_message(text), cfg.trigger)
+    if code is None or not code.strip():
+        if chat_log is not None and text:
+            chat_log.append(channel, nick, user_id or None, text)
+        return False
+
+    log.info("eval from %s in %s: %r", nick, channel, code[:120])
     result = engine.eval(
-        EvalRequest(code=code, nick=nick, channel=channel, mask=user_id or None),
+        EvalRequest(
+            code=code,
+            nick=nick,
+            channel=channel,
+            mask=user_id or None,
+            loglines=chat_log.slurp(channel) if chat_log is not None else (),
+        ),
         say=lambda t: client.chat_postMessage(channel=channel, text=t),
     )
     for message in format_reply(result.ok, result.output, result.warnings):
@@ -159,6 +172,7 @@ def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
 
     app = App(process_before_response=True, **app_kwargs)
     nicks = NickCache()
+    chat_log = ChatLog()
 
     @app.middleware
     def drop_retries(request, next):
@@ -173,7 +187,7 @@ def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
 
     def evaluate(event, client, logger):
         try:
-            handle_message_event(engine, client, event, cfg, nicks)
+            handle_message_event(engine, client, event, cfg, nicks, chat_log)
         except Exception:
             logger.exception("eval handler failed")
 

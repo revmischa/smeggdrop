@@ -32,6 +32,7 @@ BOOTSTRAP_FILES = (
     "commands.tcl",
     "meta.tcl",
     "cache.tcl",
+    "httpx.tcl",
     "bootstrap.tcl",
 )
 SLAVE = "smeggdrop"
