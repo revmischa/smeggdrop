@@ -1,0 +1,175 @@
+# tests for the slack adapter's decision logic; no slack sdk required —
+# the client is duck-typed and bolt is only imported inside build_app()
+
+import pytest
+
+from smeggdrop.engine import Engine, Limits
+from smeggdrop.platforms.slack import (
+    NickCache,
+    SlackConfig,
+    format_reply,
+    handle_message_event,
+    unfuck_slack_message,
+)
+from smeggdrop.state import FileStateStore
+
+
+class StubClient:
+    def __init__(self, user_names=None):
+        self.posted = []
+        self.user_names = user_names or {}
+
+    def chat_postMessage(self, *, channel, text, **kwargs):
+        self.posted.append((channel, text))
+
+    def users_info(self, *, user):
+        if user not in self.user_names:
+            raise RuntimeError("user_not_found")
+        return {"user": {"name": self.user_names[user], "profile": {}}}
+
+
+@pytest.fixture
+def engine(tmp_path):
+    e = Engine(FileStateStore(tmp_path), limits=Limits(eval_time_seconds=2))
+    yield e
+    e.close()
+
+
+@pytest.fixture
+def cfg():
+    return SlackConfig()
+
+
+def event(text, **kw):
+    return {"type": "message", "channel": "C123", "user": "U1", "text": text, **kw}
+
+
+def test_trigger_evaluates_and_replies(engine, cfg):
+    client = StubClient(user_names={"U1": "alice"})
+    assert handle_message_event(engine, client, event("tcl expr {6 * 7}"), cfg)
+    assert client.posted == [("C123", "```42```")]
+
+
+def test_non_trigger_ignored(engine, cfg):
+    client = StubClient()
+    assert not handle_message_event(engine, client, event("just chatting about tcl"), cfg)
+    assert client.posted == []
+
+
+def test_bot_messages_never_evaluated(engine, cfg):
+    client = StubClient()
+    assert not handle_message_event(
+        engine, client, event("tcl expr 1", bot_id="B999"), cfg
+    )
+    assert not handle_message_event(
+        engine, client, event("tcl expr 1", subtype="bot_message"), cfg
+    )
+    assert client.posted == []
+
+
+def test_edited_message_evaluated(engine, cfg):
+    client = StubClient()
+    evt = {
+        "type": "message",
+        "subtype": "message_changed",
+        "channel": "C123",
+        "message": {"user": "U1", "text": "tcl expr {1 + 1}"},
+    }
+    assert handle_message_event(engine, client, evt, cfg)
+    assert client.posted == [("C123", "```2```")]
+
+
+def test_channel_allowlist(engine):
+    cfg = SlackConfig(channels=frozenset({"CALLOWED"}))
+    client = StubClient()
+    assert not handle_message_event(engine, client, event("tcl expr 1"), cfg)
+    assert client.posted == []
+
+
+def test_nick_reaches_sandbox(engine, cfg):
+    client = StubClient(user_names={"U1": "alice"})
+    handle_message_event(engine, client, event("tcl nick"), cfg)
+    assert client.posted == [("C123", "```alice```")]
+
+
+def test_nick_falls_back_to_id(engine, cfg):
+    client = StubClient()  # users_info fails
+    handle_message_event(engine, client, event("tcl nick"), cfg)
+    assert client.posted == [("C123", "```U1```")]
+
+
+def test_say_posts_immediately(engine, cfg):
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl core::bot_say hi there"), cfg)
+    assert client.posted[0] == ("C123", "hi there")
+
+
+def test_error_reply(engine, cfg):
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl no-such-command"), cfg)
+    assert len(client.posted) == 1
+    assert client.posted[0][1].startswith("```error:")
+
+
+def test_slack_mangled_url_unwrapped(engine, cfg):
+    client = StubClient()
+    handle_message_event(
+        engine, client, event("tcl string length <http://x.io/a?b=1|x.io/a?b=1>"), cfg
+    )
+    assert client.posted == [("C123", "```%d```" % len("http://x.io/a?b=1"))]
+
+
+@pytest.mark.parametrize(
+    "mangled,clean",
+    [
+        ("<http://example.com|example.com>", "http://example.com"),
+        ("<https://example.com/x>", "https://example.com/x"),
+        ("`tcl expr 1`", "tcl expr 1"),
+        ("a &amp; b &lt;c&gt;", "a & b <c>"),
+        ("plain text", "plain text"),
+    ],
+)
+def test_unfuck_slack_message(mangled, clean):
+    assert unfuck_slack_message(mangled) == clean
+
+
+def test_format_reply_fences_and_truncates():
+    messages = format_reply(True, "x" * 20000, [])
+    assert all(m.startswith("```") and m.endswith("```") for m in messages)
+    assert len(messages) <= 3
+    assert "(truncated)" in messages[-1]
+
+
+def test_format_reply_escapes_fences_and_warnings():
+    (message,) = format_reply(True, "a```b", ["heads up"])
+    assert "'''" in message
+    assert "warning: heads up" in message
+
+
+def test_format_reply_empty_output():
+    assert format_reply(True, "", []) == ["```(no output)```"]
+
+
+def test_config_from_env():
+    cfg = SlackConfig.from_env(
+        {
+            "SMEGGDROP_TRIGGER": r"^!eval\s",
+            "SMEGGDROP_CHANNELS": "C1, C2 ,",
+            "SMEGGDROP_STATE": "/data/state",
+            "SMEGGDROP_TIME_LIMIT": "3",
+            "SLACK_APP_TOKEN": "xapp-1",
+        }
+    )
+    assert cfg.trigger.pattern == r"^!eval\s"
+    assert cfg.channels == frozenset({"C1", "C2"})
+    assert cfg.state_dir == "/data/state"
+    assert cfg.time_limit == 3
+    assert cfg.app_token == "xapp-1"
+
+
+def test_nick_cache_caches(engine):
+    client = StubClient(user_names={"U1": "alice"})
+    cache = NickCache()
+    assert cache.resolve(client, "U1") == "alice"
+    client.user_names.clear()
+    assert cache.resolve(client, "U1") == "alice"

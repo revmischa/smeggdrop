@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--no-run", action="store_true", help="skip calling zero-arg procs")
     audit.add_argument("--time-limit", type=int, default=2, help="seconds per proc call")
 
+    sub.add_parser(
+        "slack",
+        help="run the slack bot over socket mode "
+        "(needs SLACK_BOT_TOKEN, SLACK_APP_TOKEN; config via SMEGGDROP_* env)",
+    )
+
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.WARNING,
@@ -39,6 +45,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "repl":
         return cmd_repl(args)
+    if args.command == "slack":
+        return cmd_slack(args)
     return cmd_audit(args)
 
 
@@ -80,6 +88,23 @@ def cmd_repl(args) -> int:
                     print(result.output)
             else:
                 print(f"error: {result.output}")
+    finally:
+        engine.close()
+    return 0
+
+
+def cmd_slack(args) -> int:
+    from smeggdrop.platforms.slack import SlackConfig, run_socket_mode
+
+    cfg = SlackConfig.from_env()
+    engine = Engine(
+        FileStateStore(args.state),
+        tcl_dir=args.tcl_dir,
+        limits=Limits(eval_time_seconds=cfg.time_limit),
+        words_file=cfg.words_file,
+    )
+    try:
+        run_socket_mode(engine, cfg)
     finally:
         engine.close()
     return 0

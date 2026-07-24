@@ -31,6 +31,38 @@ The state directory format is unchanged from the perl bot (sha1-named
 proc/var files plus an `_index` per category), so an existing state dir
 works as-is.
 
+## Slack
+
+Create a Slack app with bot scopes `chat:write`, `users:read`,
+`channels:history` (plus `groups:history` for private channels) and
+subscribe to the `message.channels` (and `message.groups`) events. Then
+say `tcl expr {6 * 7}` in a channel the bot is in.
+
+Local development uses Socket Mode (no public endpoint; enable it in the
+app config and mint an `xapp-` token):
+
+```sh
+export SLACK_BOT_TOKEN=xoxb-... SLACK_APP_TOKEN=xapp-...
+uv run --extra slack smeggdrop --state state-local slack
+```
+
+Production runs the Events API on Lambda from a container image
+([`Dockerfile.lambda`](Dockerfile.lambda)):
+
+- point the app's event request URL at the function URL / API Gateway;
+  set `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` on the function
+- set **reserved concurrency to 1** — evals are serialized by design
+- grant the function role `lambda:InvokeFunction` on itself (bolt's lazy
+  listeners ack within Slack's 3s window, then re-invoke to run the eval)
+- state is ephemeral per warm container until the S3 store lands; mount
+  EFS at `SMEGGDROP_STATE` if you need durability before then
+
+Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
+`SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
+`SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`.
+Retried Slack deliveries are dropped rather than re-evaluated, and request
+signatures are verified by bolt.
+
 `audit` exists so the port can be verified against real accumulated state:
 it loads everything into a throwaway sandbox (nothing persisted, network
 stubbed out), flags procs that fail to load or reference commands that no
