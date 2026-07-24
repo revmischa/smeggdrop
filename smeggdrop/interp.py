@@ -57,6 +57,18 @@ class SafeTclInterp:
         # tzdata off disk), so run clock in the master on the slave's behalf
         self.tk.call("interp", "alias", self.slave, "clock", "", "clock")
 
+        # `encoding` is hidden in safe interps because `encoding system`
+        # mutates process state; the read-only subcommands are harmless and
+        # plenty of saved procs use them
+        self.tk.call(
+            "proc", "::_smeggdrop_encoding", "args",
+            'set sub [lindex $args 0]\n'
+            'if {$sub ni {convertfrom convertto names}} '
+            '{error "encoding $sub is not allowed in the sandbox"}\n'
+            "uplevel #0 [linsert $args 0 encoding]",
+        )
+        self.tk.call("interp", "alias", self.slave, "encoding", "", "::_smeggdrop_encoding")
+
         for name, fn in (builtins or {}).items():
             self.register_builtin(name, fn)
 

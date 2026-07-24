@@ -39,6 +39,13 @@ def test_clock_aliased_from_master(interp):
     assert "1970" in interp.eval("clock format 0 -gmt 1")
 
 
+def test_encoding_readonly_subcommands(interp):
+    assert interp.eval("encoding convertto utf-8 abc") == "abc"
+    assert "utf-8" in interp.eval("encoding names")
+    with pytest.raises(TclError, match="not allowed"):
+        interp.eval("encoding system iso8859-1")
+
+
 def test_tuple_args_are_injection_safe(interp):
     hostile = 'a [exec ls] {b} $env(PATH) "; exit'
     interp.eval(("set", "x", hostile))
