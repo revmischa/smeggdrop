@@ -51,6 +51,8 @@ class ProcAudit:
     run_ok: bool | None = None
     run_error: str | None = None
     needs_network: bool = False  # only "failed" because audit stubs the network
+    arity: int | None = None  # required args, when it takes any
+    arg_mismatch: bool = False  # failed on the audit's dummy args, not broken
 
     @property
     def healthy(self) -> bool:
@@ -70,8 +72,10 @@ class AuditReport:
             "broken_refs": sum(1 for p in self.procs if p.broken_refs),
             "unknown_refs": sum(1 for p in self.procs if p.unknown_refs),
             "ran": sum(1 for p in self.procs if p.ran),
+            "run_ok": sum(1 for p in self.procs if p.run_ok is True),
             "run_failures": sum(1 for p in self.procs if p.run_ok is False),
             "needs_network": sum(1 for p in self.procs if p.needs_network),
+            "arg_mismatch": sum(1 for p in self.procs if p.arg_mismatch),
             "var_load_failures": len(self.var_load_errors),
         }
 
@@ -89,6 +93,8 @@ def audit_state(
     tcl_dir=None,
     run: bool = True,
     time_limit: int = 2,
+    call_with_args: bool = False,
+    arg_value: str = "test",
 ) -> AuditReport:
     said: list[str] = []
     interp = SafeTclInterp(
@@ -156,21 +162,36 @@ def audit_state(
             for name, report in reports.items():
                 if not report.loaded or report.shadowed:
                     continue
-                if not _callable_without_args(interp, name):
+                required = _required_args(interp, name)
+                if required is None:
                     continue
+                report.arity = len(required)
+                if required and not call_with_args:
+                    continue  # zero-arg procs only
+
+                # procs that take arguments get a generic token per slot;
+                # it exercises far more of the library than zero-arg calls
+                # alone, at the cost of some "wrong kind of argument" noise
+                # that _looks_like_arg_mismatch sorts back out
+                call = (name, *[arg_value] * len(required))
                 report.ran = True
                 try:
-                    interp.eval_limited((name,), time_limit)
+                    interp.eval_limited(call, time_limit)
                     report.run_ok = True
                 except TclError as e:
-                    if NETWORK_STUB_MARKER in str(e):
+                    error = str(e)
+                    if NETWORK_STUB_MARKER in error:
                         # it made it all the way to the fetcher; that's a
                         # working proc, the audit just won't do network
                         report.needs_network = True
                         report.run_ok = None
+                    elif required and _looks_like_arg_mismatch(error):
+                        report.arg_mismatch = True
+                        report.run_ok = None
+                        report.run_error = error
                     else:
                         report.run_ok = False
-                        report.run_error = str(e)
+                        report.run_error = error
 
         return AuditReport(list(reports.values()), var_errors)
     finally:
@@ -184,14 +205,52 @@ def _network_stub(*args):
     raise TclError(NETWORK_STUB_MARKER)
 
 
-def _callable_without_args(interp: SafeTclInterp, name: str) -> bool:
+def _required_args(interp: SafeTclInterp, name: str) -> list[str] | None:
+    """Args with no default, i.e. what a caller must supply. None if the
+    proc can't be introspected."""
     try:
         args = interp.splitlist(interp.eval(("info", "args", name)))
     except TclError:
-        return False
+        return None
+    required = []
     for arg in args:
         if arg == "args":
             continue  # varargs: zero is fine
         if interp.eval(("info", "default", name, arg, "::_audit_default")) != "1":
-            return False
-    return True
+            required.append(arg)
+    return required
+
+
+def _callable_without_args(interp: SafeTclInterp, name: str) -> bool:
+    required = _required_args(interp, name)
+    return required is not None and not required
+
+
+# Errors that mean "the audit's dummy argument was wrong for this proc",
+# not "this proc is broken". A proc wanting a number, a nick that exists, or
+# a specific keyword will reject a generic token, and that is not a defect.
+ARG_MISMATCH_PATTERNS = (
+    "expected integer",
+    "expected floating-point",
+    "expected boolean",
+    "non-numeric string",
+    "can't use empty string as operand",
+    "expected version number",
+    "not in valid range",
+    "no such element in array",
+    "no such variable",
+    "must be ",
+    "bad option",
+    "bad index",
+    "bad command",
+    "invalid bareword",
+    "divide by zero",
+    "list element in braces",
+    "unmatched open brace",
+    "wrong # args",
+)
+
+
+def _looks_like_arg_mismatch(error: str) -> bool:
+    lowered = error.lower()
+    return any(p in lowered for p in ARG_MISMATCH_PATTERNS)

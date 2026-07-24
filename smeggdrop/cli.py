@@ -30,6 +30,12 @@ def main(argv: list[str] | None = None) -> int:
     audit.add_argument("--json", action="store_true", help="full report as json")
     audit.add_argument("--no-run", action="store_true", help="skip calling zero-arg procs")
     audit.add_argument("--time-limit", type=int, default=2, help="seconds per proc call")
+    audit.add_argument(
+        "--call-with-args",
+        action="store_true",
+        help="also call procs that take arguments, passing a dummy value per slot",
+    )
+    audit.add_argument("--arg-value", default="test", help="dummy argument (default: test)")
 
     sub.add_parser(
         "slack",
@@ -120,7 +126,12 @@ def cmd_slack(args) -> int:
 def cmd_audit(args) -> int:
     store = FileStateStore(args.state)
     report = audit_state(
-        store, tcl_dir=args.tcl_dir, run=not args.no_run, time_limit=args.time_limit
+        store,
+        tcl_dir=args.tcl_dir,
+        run=not args.no_run,
+        time_limit=args.time_limit,
+        call_with_args=args.call_with_args,
+        arg_value=args.arg_value,
     )
 
     if args.json:
@@ -141,10 +152,12 @@ def cmd_audit(args) -> int:
         summary = report.summary()
         print(
             f"\n{summary['total']} procs: "
-            f"{summary['load_failures']} load failures, "
-            f"{summary['broken_refs']} with broken refs, "
-            f"{summary['run_failures']}/{summary['ran']} run failures, "
-            f"{summary['unknown_refs']} suspect, "
+            f"{summary['run_ok']} ran clean, "
+            f"{summary['needs_network']} need network, "
+            f"{summary['run_failures']} failed, "
+            f"{summary['arg_mismatch']} wanted different arguments, "
+            f"{summary['load_failures']} failed to load, "
+            f"{summary['broken_refs']} reference dead commands, "
             f"{summary['var_load_failures']} var load failures"
         )
 

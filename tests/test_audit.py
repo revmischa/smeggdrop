@@ -105,3 +105,34 @@ def test_audit_never_writes_state(store, tmp_path):
         if p.is_file()
     }
     assert before == after
+
+
+def test_audit_calls_procs_with_arguments(store):
+    # with_args covers the bulk of the library that zero-arg calls miss
+    store.save_many(
+        "procs",
+        {
+            "adds": "{a b} {expr {$a + $b}}",          # wants numbers
+            "greets": "{who} {return \"hi $who\"}",     # any string works
+            "broken_with_args": "{x} {exec ls $x}",     # genuinely broken
+        },
+    )
+    report = audit_state(store, call_with_args=True)
+    procs = by_name(report)
+
+    assert procs["greets"].ran and procs["greets"].run_ok
+    assert procs["greets"].arity == 1
+
+    # "test" is not a number: that's the audit's argument being wrong, not
+    # the proc being broken
+    assert procs["adds"].ran and procs["adds"].arg_mismatch
+    assert procs["adds"].run_ok is None
+
+    assert procs["broken_with_args"].run_ok is False
+
+
+def test_audit_without_call_with_args_skips_them(store):
+    store.save_many("procs", {"greets": '{who} {return "hi $who"}'})
+    procs = by_name(audit_state(store))
+    assert not procs["greets"].ran
+    assert procs["greets"].arity == 1
