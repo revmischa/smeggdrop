@@ -72,10 +72,19 @@ def unfuck_slack_message(text: str) -> str:
     <url> / <url|label> links, unwrap a fully-backticked message, and
     unescape html entities."""
     text = re.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", text)
-    m = re.fullmatch(r"\s*`{1,3}(.+?)`{1,3}\s*", text, re.S)
-    if m:
-        text = m.group(1)
-    return html.unescape(text)
+    return html.unescape(unwrap_backticks(text))
+
+
+def unwrap_backticks(text: str) -> str:
+    """Strip backticks that wrap the whole string.
+
+    People copy commands out of code-formatted messages, so `tcl ``snoe``
+    arrives with the code portion still fenced and fails as an invalid
+    command name. Only unwrap when the fences enclose everything — a stray
+    backtick inside real tcl is left alone.
+    """
+    match = re.fullmatch(r"\s*`{1,3}([^`].*?)`{1,3}\s*", text, re.S)
+    return match.group(1) if match else text
 
 
 def resolve_mentions(text: str, client, nicks: "NickCache") -> str:
@@ -276,6 +285,9 @@ def handle_message_event(
 
     cleaned = resolve_mentions(unfuck_slack_message(text), client, resolver)
     code = extract_code(cleaned, cfg.trigger)
+    if code is not None:
+        # the trigger may have been outside the fences: "tcl `snoe`"
+        code = unwrap_backticks(code)
     if code is None or not code.strip():
         if chat_log is not None and cleaned:
             chat_log.append(channel, nick, user_id or None, cleaned)

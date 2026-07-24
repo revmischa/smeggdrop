@@ -94,3 +94,25 @@ def test_open_store_dispatches_on_location(tmp_path, monkeypatch):
     store = open_store("s3://bucket/prefix")
     assert isinstance(store, state_s3.S3StateStore)
     assert store.bucket == "bucket"
+
+
+def test_legacy_latin1_bytes_survive_loading(tmp_path):
+    # the perl bot used `use bytes`, so some procs hold latin-1 art:
+    # ¯`·.¸¸.·´¯ waves and °_o faces. errors="replace" destroyed them.
+    from smeggdrop.state import decode
+
+    procs = tmp_path / "procs"
+    procs.mkdir(parents=True)
+    (tmp_path / "vars").mkdir()
+    raw = b'{} { return "\xb0_o \xb7_. \xaf`\xb7.\xb8\xb8.\xb7\xb4\xaf" }'
+    sha = name_sha1("face")
+    (procs / "_index").write_text("{face} %s\n" % sha)
+    (procs / sha).write_bytes(raw)
+
+    loaded = FileStateStore(tmp_path).load("procs")["face"]
+    assert "�" not in loaded
+    assert "°_o" in loaded and "·_." in loaded
+    assert "¯`·.¸¸.·´¯" in loaded
+
+    # utf-8 content still decodes as utf-8, not mojibake
+    assert decode("✗ ünïcode".encode("utf-8")) == "✗ ünïcode"

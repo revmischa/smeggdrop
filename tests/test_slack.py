@@ -396,3 +396,27 @@ def test_retry_after_header_is_honoured():
         response = Response()
 
     assert retry_after_seconds(Err()) == 7.0
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("tcl `snoe`", "snoe"),
+        ("tcl ```expr {1 + 1}```", "expr {1 + 1}"),
+        ("`tcl snoe`", "snoe"),
+        ("tcl expr {1 + 1}", "expr {1 + 1}"),
+    ],
+)
+def test_backtick_wrapped_commands_run(engine, cfg, text, code):
+    # people copy commands out of code-formatted messages
+    from smeggdrop.platforms.slack import unwrap_backticks, unfuck_slack_message
+    from smeggdrop.platforms import extract_code
+
+    extracted = extract_code(unfuck_slack_message(text), cfg.trigger)
+    assert unwrap_backticks(extracted) == code
+
+
+def test_backticked_command_evaluates(engine, cfg):
+    client = StubClient()
+    assert handle_message_event(engine, client, event("tcl `expr {6 * 7}`"), cfg)
+    assert client.posted == [("C123", "```42```")]
