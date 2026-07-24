@@ -9,15 +9,17 @@ from smeggdrop.platforms.slack import (
     SlackConfig,
     format_reply,
     handle_message_event,
+    strip_irc_formatting,
     unfuck_slack_message,
 )
 from smeggdrop.state import FileStateStore
 
 
 class StubClient:
-    def __init__(self, user_names=None):
+    def __init__(self, user_names=None, channel_names=None):
         self.posted = []
         self.user_names = user_names or {}
+        self.channel_names = channel_names if channel_names is not None else {"C123": "tcl"}
 
     def chat_postMessage(self, *, channel, text, **kwargs):
         self.posted.append((channel, text))
@@ -26,6 +28,11 @@ class StubClient:
         if user not in self.user_names:
             raise RuntimeError("user_not_found")
         return {"user": {"name": self.user_names[user], "profile": {}}}
+
+    def conversations_info(self, *, channel):
+        if channel not in self.channel_names:
+            raise RuntimeError("channel_not_found")
+        return {"channel": {"name": self.channel_names[channel]}}
 
 
 @pytest.fixture
@@ -182,6 +189,48 @@ def test_chat_log_feeds_eval_and_drains(engine, cfg):
     client.posted.clear()
     handle_message_event(engine, client, event("tcl llength [log]"), cfg, chat_log=chat_log)
     assert client.posted == [("C123", "```0```")]  # slurped by the previous eval
+
+
+def test_channel_reaches_sandbox_as_irc_name(engine, cfg):
+    # saved procs print [channel] and key cache buckets off it, so it has
+    # to look like an irc channel, not a slack id
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl channel"), cfg)
+    assert client.posted == [("C123", "```#tcl```")]
+
+
+def test_channel_falls_back_to_id(engine, cfg):
+    client = StubClient(channel_names={})
+    handle_message_event(engine, client, event("tcl channel"), cfg)
+    assert client.posted == [("C123", "```C123```")]
+
+
+@pytest.mark.parametrize(
+    "raw,clean",
+    [
+        ("\x0304,04***\x03 hi", "*** hi"),
+        ("\x02bold\x0f", "bold"),
+        ("\x034red\x03", "red"),
+        ("\x1funderline\x16", "underline"),
+        ("no formatting", "no formatting"),
+    ],
+)
+def test_strip_irc_formatting(raw, clean):
+    assert strip_irc_formatting(raw) == clean
+
+
+def test_reply_strips_irc_colors(engine, cfg):
+    # ascii art from the state is full of mIRC colour codes; slack renders
+    # none of them, leaving literal "04,04" garbage if not stripped
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl set x {\x0304,04* art}"), cfg)
+    assert client.posted == [("C123", "```* art```")]
+
+
+def test_say_strips_irc_colors(engine, cfg):
+    client = StubClient()
+    handle_message_event(engine, client, event("tcl core::bot_say \x0304,04*\x03 said"), cfg)
+    assert client.posted[0] == ("C123", "* said")
 
 
 def test_nick_cache_caches(engine):

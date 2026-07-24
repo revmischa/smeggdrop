@@ -79,6 +79,31 @@ def test_slave_cannot_lift_its_own_limit(interp):
         )
 
 
+def test_proc_defaults_survive_snapshot(interp):
+    # info args drops defaults; a proc that was callable with no arguments
+    # must stay that way across a save/load cycle
+    interp.eval("proc greet {{who world} {greeting hi}} {return \"$greeting $who\"}")
+    payload = interp.procs()["greet"]
+    assert payload.startswith("{{who world} {greeting hi}}")
+
+    other = SafeTclInterp()
+    try:
+        other.install_proc("greet", payload)
+        assert other.eval("greet") == "hi world"
+        assert other.eval("greet there") == "hi there"
+        # and it survives a second round trip unchanged
+        assert other.procs()["greet"] == payload
+    finally:
+        other.close()
+
+
+def test_arg_spec_without_defaults(interp):
+    interp.eval("proc plain {a b} {expr {$a + $b}}")
+    assert interp.procs()["plain"] == "{a b} {expr {$a + $b}}"
+    interp.eval("proc noargs {} {return 1}")
+    assert interp.procs()["noargs"] == "{} {return 1}"
+
+
 def test_snapshot_serialization_roundtrip(interp):
     interp.eval("proc double x {expr {$x * 2}}")
     interp.eval("set scalar_var {hello world}")

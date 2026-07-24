@@ -183,12 +183,31 @@ class SafeTclInterp:
         out = {}
         for name in self.splitlist(self.eval("info procs")):
             try:
-                args = self.eval(("info", "args", name))
+                args = self.arg_spec(name)
                 body = self.eval(("info", "body", name))
             except TclError:
                 continue
             out[name] = "{%s} {%s}" % (args, body)
         return out
+
+    def arg_spec(self, name: str) -> str:
+        """Rebuild a proc's argument list *with* default values.
+
+        `info args` returns bare names, so serializing from it silently
+        drops defaults and turns `proc p {{x 1}}` into `proc p {x}` — a
+        proc that used to be callable with no arguments stops being one.
+        `info default` recovers them.
+        """
+        spec = []
+        for arg in self.splitlist(self.eval(("info", "args", name))):
+            has_default = self.eval(("info", "default", name, arg, "::_smeggdrop_default"))
+            if has_default == "1":
+                default = self.eval(("set", "::_smeggdrop_default"))
+                spec.append(self.eval(("list", arg, default)))
+            else:
+                spec.append(arg)
+        self.eval("catch {unset ::_smeggdrop_default}")
+        return self.eval(("list", *spec)) if spec else ""
 
     def vars(self) -> dict[str, str]:
         out = {}

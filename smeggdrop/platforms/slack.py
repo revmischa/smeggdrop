@@ -67,8 +67,19 @@ def unfuck_slack_message(text: str) -> str:
     return html.unescape(text)
 
 
+# mIRC formatting: bold/underline/reset/reverse, and colour (^C plus up to
+# two digits, optionally ,digits). Slack renders none of it, and the digits
+# show up as literal garbage in the middle of ascii art if left in.
+IRC_FORMATTING = re.compile(r"[\x02\x1d\x1f\x0f\x16]|\x03\d{0,2}(?:,\d{1,2})?")
+
+
+def strip_irc_formatting(text: str) -> str:
+    return IRC_FORMATTING.sub("", text)
+
+
 def format_reply(ok: bool, output: str, warnings: list[str]) -> list[str]:
     """Render an EvalResult as a list of slack messages (code blocks)."""
+    output = strip_irc_formatting(output)
     body = output if output else "(no output)"
     if not ok:
         body = f"error: {body}"
@@ -117,6 +128,30 @@ class NickCache:
         return self._names[user_id]
 
 
+class ChannelCache:
+    """channel id -> #name via conversations.info, cached.
+
+    Saved procs treat [channel] as an irc channel name (they print it, and
+    they key cache buckets off it), so the sandbox sees "#tcl" while the
+    api calls keep using the id. Falls back to the id.
+    """
+
+    def __init__(self):
+        self._names: dict[str, str] = {}
+
+    def resolve(self, client, channel_id: str) -> str:
+        if not channel_id:
+            return ""
+        if channel_id not in self._names:
+            try:
+                info = client.conversations_info(channel=channel_id)
+                name = info["channel"].get("name")
+                self._names[channel_id] = f"#{name}" if name else channel_id
+            except Exception:
+                self._names[channel_id] = channel_id
+        return self._names[channel_id]
+
+
 def handle_message_event(
     engine: Engine,
     client,
@@ -124,6 +159,7 @@ def handle_message_event(
     cfg: SlackConfig,
     nicks: NickCache | None = None,
     chat_log: ChatLog | None = None,
+    channels: ChannelCache | None = None,
 ) -> bool:
     """Process one message event. Returns True if an eval ran."""
     subtype = event.get("subtype")
@@ -150,16 +186,19 @@ def handle_message_event(
             chat_log.append(channel, nick, user_id or None, text)
         return False
 
-    log.info("eval from %s in %s: %r", nick, channel, code[:120])
+    channel_name = (channels or ChannelCache()).resolve(client, channel)
+    log.info("eval from %s in %s: %r", nick, channel_name, code[:120])
     result = engine.eval(
         EvalRequest(
             code=code,
             nick=nick,
-            channel=channel,
+            channel=channel_name,
             mask=user_id or None,
             loglines=chat_log.slurp(channel) if chat_log is not None else (),
         ),
-        say=lambda t: client.chat_postMessage(channel=channel, text=t),
+        say=lambda t: client.chat_postMessage(
+            channel=channel, text=strip_irc_formatting(t)
+        ),
     )
     for message in format_reply(result.ok, result.output, result.warnings):
         client.chat_postMessage(channel=channel, text=message)
@@ -172,6 +211,7 @@ def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
 
     app = App(process_before_response=True, **app_kwargs)
     nicks = NickCache()
+    channels = ChannelCache()
     chat_log = ChatLog()
 
     @app.middleware
@@ -187,7 +227,7 @@ def build_app(engine: Engine, cfg: SlackConfig, **app_kwargs):
 
     def evaluate(event, client, logger):
         try:
-            handle_message_event(engine, client, event, cfg, nicks, chat_log)
+            handle_message_event(engine, client, event, cfg, nicks, chat_log, channels)
         except Exception:
             logger.exception("eval handler failed")
 
