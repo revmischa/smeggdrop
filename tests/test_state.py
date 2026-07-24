@@ -79,3 +79,18 @@ def test_names_never_become_paths(tmp_path):
     assert (tmp_path / "procs" / name_sha1(evil)).exists()
     assert not (tmp_path.parent / "escape").exists()
     assert FileStateStore(tmp_path).load("procs") == {evil: "{} {return x}"}
+
+
+def test_open_store_dispatches_on_location(tmp_path, monkeypatch):
+    from smeggdrop.state import FileStateStore as FSS
+    from smeggdrop.state import open_store
+
+    assert isinstance(open_store(str(tmp_path)), FSS)
+
+    # s3 uris get the s3 store, without needing credentials to construct
+    import smeggdrop.state_s3 as state_s3
+
+    monkeypatch.setattr(state_s3.S3StateStore, "client", property(lambda self: None))
+    store = open_store("s3://bucket/prefix")
+    assert isinstance(store, state_s3.S3StateStore)
+    assert store.bucket == "bucket"

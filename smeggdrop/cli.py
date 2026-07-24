@@ -10,12 +10,16 @@ from pathlib import Path
 
 from smeggdrop.audit import audit_state
 from smeggdrop.engine import Engine, EvalRequest, Limits
-from smeggdrop.state import FileStateStore
+from smeggdrop.state import CATEGORIES, open_store
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smeggdrop")
-    parser.add_argument("--state", default="state", help="state directory (default: ./state)")
+    parser.add_argument(
+        "--state",
+        default="state",
+        help="state directory, or s3://bucket/prefix (default: ./state)",
+    )
     parser.add_argument("--tcl-dir", default=None, help="override bundled tcl bootstrap dir")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -42,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     audit.add_argument("--arg-value", default="test", help="dummy argument (default: test)")
 
+    migrate = sub.add_parser(
+        "migrate", help="copy state into another store (e.g. a file dir into s3)"
+    )
+    migrate.add_argument("destination", help="target directory or s3://bucket/prefix")
+
     sub.add_parser(
         "slack",
         help="run the slack bot over socket mode "
@@ -63,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_repl(args)
     if args.command == "slack":
         return cmd_slack(args)
+    if args.command == "migrate":
+        return cmd_migrate(args)
     return cmd_audit(args)
 
 
@@ -73,7 +84,7 @@ def cmd_repl(args) -> int:
         pass
 
     engine = Engine(
-        FileStateStore(args.state),
+        open_store(args.state),
         tcl_dir=args.tcl_dir,
         limits=Limits(eval_time_seconds=args.time_limit),
         words_file=args.words,
@@ -116,7 +127,7 @@ def cmd_slack(args) -> int:
     apply_memory_limit()
     cfg = SlackConfig.from_env()
     engine = Engine(
-        FileStateStore(args.state),
+        open_store(args.state),
         tcl_dir=args.tcl_dir,
         limits=Limits(eval_time_seconds=cfg.time_limit),
         words_file=cfg.words_file,
@@ -128,8 +139,19 @@ def cmd_slack(args) -> int:
     return 0
 
 
+def cmd_migrate(args) -> int:
+    source = open_store(args.state)
+    destination = open_store(args.destination)
+    for category in CATEGORIES:
+        entries = source.load(category)
+        destination.load(category)  # so an existing destination is merged, not replaced
+        destination.save_many(category, entries)
+        print(f"{category}: copied {len(entries)}")
+    return 0
+
+
 def cmd_audit(args) -> int:
-    store = FileStateStore(args.state)
+    store = open_store(args.state)
     report = audit_state(
         store,
         tcl_dir=args.tcl_dir,

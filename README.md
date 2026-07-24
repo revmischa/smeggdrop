@@ -69,8 +69,27 @@ Production runs the Events API on Lambda from a container image
 - set **reserved concurrency to 1** — evals are serialized by design
 - grant the function role `lambda:InvokeFunction` on itself (bolt's lazy
   listeners ack within Slack's 3s window, then re-invoke to run the eval)
-- state is ephemeral per warm container until the S3 store lands; mount
-  EFS at `SMEGGDROP_STATE` if you need durability before then
+- set `SMEGGDROP_STATE=s3://bucket/prefix` for durable state, and give the
+  role `s3:GetObject`/`s3:PutObject` on it
+
+## State stores
+
+`--state` (and `SMEGGDROP_STATE`) takes a directory or an `s3://` uri, and
+`migrate` copies between them:
+
+```sh
+uv run smeggdrop --state ./state-local migrate s3://my-bucket/smeggdrop
+```
+
+The directory layout is the perl bot's (one sha1-named file per proc plus
+an `_index`). S3 packs each category into a single JSON object instead:
+6,600 objects would mean 6,600 GETs on every cold start, while the whole
+state is ~6 MB — one GET to load, one PUT per eval that changes something.
+Turn on bucket versioning and every eval becomes a restorable version.
+
+Writes are conditional on the ETag that was loaded, so if a second process
+does write, its changes are merged rather than clobbered. That's a backstop
+for cold-start overlap, not a licence to run more than one writer.
 
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),

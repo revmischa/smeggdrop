@@ -38,6 +38,15 @@ def name_sha1(name: str) -> str:
     return hashlib.sha1(name.encode("utf-8")).hexdigest()
 
 
+def open_store(location: str) -> StateStore:
+    """Open a state store from a path or an s3:// uri."""
+    if location.startswith("s3://"):
+        from smeggdrop.state_s3 import S3StateStore
+
+        return S3StateStore.from_uri(location)
+    return FileStateStore(location)
+
+
 class FileStateStore:
     def __init__(self, root: Path | str):
         self.root = Path(root)
