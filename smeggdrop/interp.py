@@ -47,6 +47,12 @@ class SafeTclInterp:
         self.slave = SLAVE
         self.tk.call("interp", "create", "-safe", self.slave)
 
+        # Stash the builtin lambda [apply] before anything can shadow it —
+        # commands.tcl installs smeggdrop's own [apply] (a different
+        # convention), and saved procs use both. bootstrap.tcl defines a
+        # dispatcher that needs the real one under this name.
+        self.eval("catch {rename apply tcl_apply}")
+
         tcl_dir = Path(tcl_dir) if tcl_dir else DEFAULT_TCL_DIR
         for name in BOOTSTRAP_FILES:
             path = tcl_dir / name

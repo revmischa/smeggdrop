@@ -238,3 +238,30 @@ def test_legacy_state_dir_loads(tmp_path):
         assert run(engine, "greet world").output == "hello world"
     finally:
         engine.close()
+
+
+def test_apply_supports_both_conventions(engine):
+    # Tcl 8.5+ builtin: a lambda
+    assert run(engine, "apply {{x} {expr {$x * 2}}} 21").output == "42"
+    assert run(engine, "apply {{a b} {expr {$a + $b}}} 1 2").output == "3"
+
+    # smeggdrop's older convention: a command plus an argument list, which
+    # concat flattens
+    assert run(engine, "apply {format %s-%s} {a b}").output == "a-b"
+    assert run(engine, "apply {string toupper} {hi}").output == "HI"
+
+    # the saved state contains procs using each, so both must work in one
+    # interpreter
+    assert run(engine, "proc double x {expr {$x * 2}}").ok
+    assert run(engine, "apply {double} {5}").output == "10"
+
+
+def test_apply_reports_real_errors(engine):
+    result = run(engine, "apply {{x} {this-does-not-exist}} 1")
+    assert not result.ok
+    assert "this-does-not-exist" in result.output
+
+
+def test_builtin_apply_stays_reachable(engine):
+    # bootstrap stashes it before commands.tcl can shadow it
+    assert run(engine, "tcl_apply {{x} {return $x}} ok").output == "ok"
