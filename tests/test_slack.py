@@ -134,6 +134,12 @@ def test_slack_mangled_url_unwrapped(engine, cfg):
         ("`tcl expr 1`", "tcl expr 1"),
         ("a &amp; b &lt;c&gt;", "a & b <c>"),
         ("plain text", "plain text"),
+        # regression: slack sometimes delivers link markup with the angle
+        # brackets html-escaped (&lt;url|label&gt; instead of <url|label>) --
+        # observed live from a real user pasting <http://x|x>. Unescaping
+        # has to happen before the url-unwrap regex or it never fires.
+        ("&lt;http://example.com|example.com&gt;", "http://example.com"),
+        ("&lt;https://example.com/x&gt;", "https://example.com/x"),
     ],
 )
 def test_unfuck_slack_message(mangled, clean):
@@ -420,3 +426,18 @@ def test_backticked_command_evaluates(engine, cfg):
     client = StubClient()
     assert handle_message_event(engine, client, event("tcl `expr {6 * 7}`"), cfg)
     assert client.posted == [("C123", "```42```")]
+
+
+def test_html_escaped_link_markup_reaches_the_fetcher(engine, cfg):
+    # regression: this exact shape (html-escaped <url|label>) was observed
+    # live and used to fail with "refusing scheme ''" -- a malformed-url
+    # artifact of the ordering bug, not a real SSRF block. After the fix it
+    # should unwrap to a clean http:// URL and fail for the real reason
+    # (unresolvable host), proving the fetcher is actually being reached.
+    client = StubClient()
+    handle_message_event(
+        engine, client, event("tcl core::curl &lt;http://nonexistent.invalid|x&gt;"), cfg
+    )
+    assert len(client.posted) == 1
+    assert "cannot resolve" in client.posted[0][1]
+    assert "refusing scheme ''" not in client.posted[0][1]

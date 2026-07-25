@@ -68,11 +68,21 @@ SPECIAL_MENTION = re.compile(r"<!([a-z_]+)(?:\^[^|>]*)?(?:\|([^>]*))?>")
 
 
 def unfuck_slack_message(text: str) -> str:
-    """Undo slack's message mangling before trigger matching: unwrap
-    <url> / <url|label> links, unwrap a fully-backticked message, and
-    unescape html entities."""
-    text = re.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", text)
-    return html.unescape(unwrap_backticks(text))
+    """Undo slack's message mangling before trigger matching: unescape html
+    entities, unwrap <url> / <url|label> links, and unwrap a fully-
+    backticked message.
+
+    Unescaping has to happen first: slack sometimes delivers link markup
+    with the angle brackets as &lt;/&gt; entities (observed live — a user's
+    <http://x|x> arrived that way), and the url-unwrap regex needs real `<`
+    `>` characters to match. Getting this backwards doesn't leak anything
+    (SafeFetcher.validate rejects a URL with stray `<>` for an unrelated
+    reason — the scheme fails to parse), but it does mean a legitimately
+    pasted link in that form would break with a confusing error.
+    """
+    text = html.unescape(text)
+    text = unwrap_backticks(text)
+    return re.sub(r"<(https?://[^|>]+)(?:\|[^>]*)?>", r"\1", text)
 
 
 def unwrap_backticks(text: str) -> str:
