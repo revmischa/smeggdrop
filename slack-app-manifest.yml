@@ -1,0 +1,31 @@
+# Create the slack app from this at https://api.slack.com/apps
+# -> "Create New App" -> "From an app manifest"
+#
+# Socket Mode is enabled for local dev (`smeggdrop slack`); for the Lambda
+# deploy, add the function URL as the request URL under Event Subscriptions
+# and Socket Mode can stay on or off (the Events API delivery wins when a
+# request URL is set).
+
+display_information:
+  name: smeggdrop
+  description: Evaluates Tcl in chat rooms
+  background_color: "#2c2d30"
+features:
+  bot_user:
+    display_name: smeggdrop
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write        # post replies
+      - users:read        # user id -> nick
+      - channels:history  # message events, public channels
+      - groups:history    # message events, private channels
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

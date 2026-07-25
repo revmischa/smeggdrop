@@ -18,6 +18,10 @@ def store(tmp_path):
             "with_args": "{a b} {expr {$a + $b}}",
             "defaulted": '{{who world}} {return "hi $who"}',
             "wont_load": "{} {return {unbalanced",
+            # bootstrap aliases `cache` globally after state load, hiding this
+            "cache": "{} {return stale}",
+            "fetches": "{} {http get http://example.com/}",
+            "reads_log": "{} {llength [log]}",
         },
     )
     s.save_many("vars", {"ok_var": "scalar {1}", "bad_var": "bogus {1}"})
@@ -51,6 +55,18 @@ def test_audit_full_report(store):
     assert not procs["wont_load"].loaded
     assert procs["wont_load"].load_error
 
+    # shadowed by the bootstrap alias, not scanned or run, doesn't crash
+    assert procs["cache"].shadowed
+    assert not procs["cache"].ran
+
+    # procs that read [log] get a plausible line, not an unset variable
+    assert procs["reads_log"].ran and procs["reads_log"].run_ok
+
+    # reached the (stubbed) network: working proc, not a failure
+    assert procs["fetches"].needs_network
+    assert procs["fetches"].run_ok is None
+    assert procs["fetches"].healthy
+
     assert "bad_var" in report.var_load_errors
     assert "ok_var" not in report.var_load_errors
 
@@ -58,8 +74,10 @@ def test_audit_full_report(store):
 def test_audit_summary_counts(store):
     report = audit_state(store)
     summary = report.summary()
-    assert summary["total"] == 6
+    assert summary["total"] == 9
     assert summary["load_failures"] == 1
+    assert summary["shadowed"] == 1
+    assert summary["needs_network"] == 1
     assert summary["broken_refs"] == 1
     assert summary["run_failures"] == 2
     assert summary["var_load_failures"] == 1
@@ -87,3 +105,50 @@ def test_audit_never_writes_state(store, tmp_path):
         if p.is_file()
     }
     assert before == after
+
+
+def test_audit_calls_procs_with_arguments(store):
+    # with_args covers the bulk of the library that zero-arg calls miss
+    store.save_many(
+        "procs",
+        {
+            "adds": "{a b} {expr {$a + $b}}",          # wants numbers
+            "greets": "{who} {return \"hi $who\"}",     # any string works
+            "broken_with_args": "{x} {exec ls $x}",     # genuinely broken
+        },
+    )
+    report = audit_state(store, call_with_args=True)
+    procs = by_name(report)
+
+    assert procs["greets"].ran and procs["greets"].run_ok
+    assert procs["greets"].arity == 1
+
+    # "test" is not a number: that's the audit's argument being wrong, not
+    # the proc being broken
+    assert procs["adds"].ran and procs["adds"].arg_mismatch
+    assert procs["adds"].run_ok is None
+
+    assert procs["broken_with_args"].run_ok is False
+
+
+def test_audit_without_call_with_args_skips_them(store):
+    store.save_many("procs", {"greets": '{who} {return "hi $who"}'})
+    procs = by_name(audit_state(store))
+    assert not procs["greets"].ran
+    assert procs["greets"].arity == 1
+
+
+def test_timeouts_are_classified_separately(tmp_path):
+    from smeggdrop.state import FileStateStore
+
+    slow = FileStateStore(tmp_path)
+    slow.save_many("procs", {"spins": "{} {while 1 {}}"})
+
+    report = audit_state(slow, time_limit=1)
+    spins = by_name(report)["spins"]
+    assert spins.timed_out
+    # too slow is not the same as broken: the bot allows longer than the
+    # audit does, and some of these procs are merely heavy
+    assert spins.run_ok is None
+    assert report.summary()["timed_out"] == 1
+    assert report.summary()["run_failures"] == 0

@@ -37,6 +37,7 @@ class FetchError(Exception):
 class FetchPolicy:
     timeout: float = 10.0
     max_bytes: int = 1_000_000
+    max_post_bytes: int = 150_000  # same default the old http.tcl enforced
     max_redirects: int = 3
     allowed_schemes: frozenset[str] = frozenset({"http", "https"})
     # tests and local dev only; never enable where an internal network exists
@@ -53,12 +54,23 @@ class SafeFetcher:
         self.policy = policy or FetchPolicy()
         self._opener = urllib.request.build_opener(_NoRedirect())
 
-    def fetch(self, url: str) -> tuple[int, str]:
-        """GET a URL. Returns (status, body). Raises FetchError on refusal."""
+    def fetch(
+        self, url: str, method: str = "GET", body: str | None = None
+    ) -> tuple[int, dict[str, str], str]:
+        """Request a URL. Returns (status, headers, body). Raises FetchError
+        on refusal. Only GET/HEAD/POST; POST bodies are size-capped."""
+        method = method.upper()
+        if method not in ("GET", "HEAD", "POST"):
+            raise FetchError(f"refusing method {method!r}")
+        data = None
+        if method == "POST":
+            data = (body or "").encode("utf-8")
+            if len(data) > self.policy.max_post_bytes:
+                raise FetchError(f"post body exceeds {self.policy.max_post_bytes} bytes")
         for _ in range(self.policy.max_redirects + 1):
             self.validate(url)
             req = urllib.request.Request(
-                url, headers={"User-Agent": USER_AGENT}, method="GET"
+                url, data=data, headers={"User-Agent": USER_AGENT}, method=method
             )
             try:
                 resp = self._opener.open(req, timeout=self.policy.timeout)
@@ -68,16 +80,19 @@ class SafeFetcher:
                 raise FetchError(f"fetch failed: {getattr(e, 'reason', e)}") from e
             with resp:
                 status = resp.status if resp.status is not None else 0
+                headers = dict(resp.headers.items())
                 if status in REDIRECT_CODES:
                     location = resp.headers.get("Location")
                     if not location:
-                        return status, ""
+                        return status, headers, ""
                     url = urljoin(url, location)
+                    if status == 303:
+                        method, data = "GET", None
                     continue
-                body = resp.read(self.policy.max_bytes + 1)
-            if len(body) > self.policy.max_bytes:
-                body = body[: self.policy.max_bytes]
-            return status, body.decode("utf-8", "replace")
+                raw = resp.read(self.policy.max_bytes + 1)
+            if len(raw) > self.policy.max_bytes:
+                raw = raw[: self.policy.max_bytes]
+            return status, headers, raw.decode("utf-8", "replace")
         raise FetchError(f"too many redirects (>{self.policy.max_redirects})")
 
     def validate(self, url: str) -> None:

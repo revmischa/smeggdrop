@@ -1,0 +1,28 @@
+# container image for the slack adapter on AWS Lambda
+#
+#   docker build -f Dockerfile.lambda -t smeggdrop-lambda .
+#   # push to ECR, create the function from the image, then set:
+#   #   SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SMEGGDROP_* (see README)
+#
+# reserved concurrency should be 1 (evals are serialized by design) and the
+# function role needs lambda:InvokeFunction on itself for bolt's lazy
+# listeners.
+
+FROM public.ecr.aws/docker/library/python:3.13-slim
+
+# tkinter needs the tcl/tk shared libraries at runtime
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libtcl8.6 libtk8.6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -c "import tkinter; print(tkinter.Tcl().eval('info patchlevel'))"
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+COPY smeggdrop ./smeggdrop
+RUN pip install --no-cache-dir ".[lambda]" awslambdaric
+
+# ephemeral unless EFS is mounted here; S3 store is planned (issue #2)
+ENV SMEGGDROP_STATE=/tmp/state
+
+ENTRYPOINT ["python", "-m", "awslambdaric"]
+CMD ["smeggdrop.lambda_handler.handler"]

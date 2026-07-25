@@ -1,6 +1,19 @@
 import re
 
-from smeggdrop.platforms import DEFAULT_TRIGGER, chunk_output, extract_code
+from smeggdrop.platforms import DEFAULT_TRIGGER, ChatLog, chunk_output, extract_code
+
+
+def test_chat_log_accumulates_and_slurps():
+    log = ChatLog(max_lines=3)
+    for i in range(5):
+        log.append("#chan", f"nick{i}", None, f"msg {i}")
+    log.append("#other", "x", "x@y", "elsewhere")
+
+    lines = log.slurp("#chan")
+    assert [l[3] for l in lines] == ["msg 2", "msg 3", "msg 4"]  # bounded
+    assert all(len(l) == 4 for l in lines)
+    assert log.slurp("#chan") == ()  # drained
+    assert log.slurp("#other")[0][1] == "x"  # channels are independent
 
 
 def test_extract_code_default_trigger():
@@ -30,3 +43,12 @@ def test_chunk_output_caps_total_chunks():
 
 def test_default_trigger_matches_perl_config():
     assert DEFAULT_TRIGGER.pattern == r"^\s*tcl\s"
+
+
+def test_trigger_is_case_insensitive():
+    # phone keyboards autocapitalize the first word of a message
+    assert extract_code("Tcl expr {1 + 1}") == "expr {1 + 1}"
+    assert extract_code("TCL expr {1 + 1}") == "expr {1 + 1}"
+    assert extract_code("  TcL set x 1") == "set x 1"
+    # still anchored: a mention of tcl mid-sentence is not a trigger
+    assert extract_code("I love Tcl actually") is None
