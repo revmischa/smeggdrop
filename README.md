@@ -54,6 +54,15 @@ EOF
 ./run-slack-dev.sh state-local          # or any state dir
 ```
 
+Edited state some other way while the bot's up (a one-off `smeggdrop repl`
+fix)? `./reload-bot.sh state-local` reloads it from disk without dropping
+the Slack connection or restarting the process — the reload is queued on
+the same worker thread evals run on, so it can't interrupt one in flight,
+and Socket Mode never reconnects. It's a signal (`SIGHUP`), not a lock:
+the file store still has no cross-process write coordination, so this
+doesn't protect against a repl edit and a live eval writing at the exact
+same instant — it just avoids the multi-second outage a full restart costs.
+
 Slack-specific behaviour worth knowing: mentions are resolved to plain
 nicks on the way in, so procs written for irc see `deathto winkie` rather
 than `deathto <@U03S5JZ7U>`; mIRC colour codes are stripped from replies

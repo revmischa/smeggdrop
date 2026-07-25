@@ -121,6 +121,9 @@ def cmd_repl(args) -> int:
 
 
 def cmd_slack(args) -> int:
+    import os
+    import signal
+
     from smeggdrop.hardening import apply_memory_limit
     from smeggdrop.platforms.slack import SlackConfig, run_socket_mode
 
@@ -132,9 +135,34 @@ def cmd_slack(args) -> int:
         limits=Limits(eval_time_seconds=cfg.time_limit),
         words_file=cfg.words_file,
     )
+
+    def on_hup(signum, frame):
+        # runs on the main thread; reload() just enqueues onto the same
+        # worker thread evals use, so this never interrupts one in flight
+        log = logging.getLogger("smeggdrop.cli")
+        log.info("SIGHUP received, reloading state from disk")
+        try:
+            errors = engine.reload()
+            log.info("reload complete (%d load errors)", len(errors))
+        except Exception:
+            log.exception("reload failed")
+
+    signal.signal(signal.SIGHUP, on_hup)
+
+    # written for reload-bot.sh to find us: `uv run` forks rather than
+    # execing, so the launching shell's $$ isn't this process's pid — only
+    # we know our own pid reliably, for a file store only (an s3 uri has
+    # no local directory to drop a pidfile in, and Lambda doesn't need one)
+    pidfile = None
+    if not args.state.startswith("s3://"):
+        pidfile = Path(args.state) / ".smeggdrop.pid"
+        pidfile.write_text(str(os.getpid()))
+
     try:
         run_socket_mode(engine, cfg)
     finally:
+        if pidfile is not None:
+            pidfile.unlink(missing_ok=True)
         engine.close()
     return 0
 

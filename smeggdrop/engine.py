@@ -107,6 +107,7 @@ class Engine:
         self._curl_calls = 0
         self.load_errors: dict[str, str] = {}
         self._closed = False
+        self._tcl_dir = tcl_dir
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="smeggdrop-tcl")
         self._executor.submit(self._init_interp, tcl_dir).result()
 
@@ -130,7 +131,33 @@ class Engine:
         future = self._executor.submit(self._eval, req, say)
         return future.result(timeout if timeout is not None else self.limits.eval_time_seconds + 30)
 
+    def reload(self, timeout: float = 60) -> dict[str, str]:
+        """Rebuild the interpreter from scratch, re-reading state from disk.
+
+        For picking up procs/vars written some other way (a one-off repl
+        fix, another operator) without dropping the platform connection —
+        unlike a full process restart, which for a Slack Socket Mode bot
+        means a lost connection and a several-second gap where messages
+        can go unanswered. Runs on the same worker thread as eval(), so it
+        can never interleave with an in-flight eval; it just queues behind
+        whatever's currently running. Nothing in memory is lost by this:
+        state is written to disk synchronously after every eval, so disk
+        is always the authoritative copy.
+
+        Returns the fresh load_errors (also left on self.load_errors).
+        """
+        future = self._executor.submit(self._reload)
+        return future.result(timeout)
+
     # -- worker-thread internals ---------------------------------------
+
+    def _reload(self) -> dict[str, str]:
+        old_interp = self.interp
+        self.load_errors = {}
+        self._words = None
+        self._init_interp(self._tcl_dir)
+        old_interp.close()
+        return self.load_errors
 
     def _init_interp(self, tcl_dir) -> None:
         self.interp = SafeTclInterp(

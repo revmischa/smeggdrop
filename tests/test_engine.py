@@ -265,3 +265,60 @@ def test_apply_reports_real_errors(engine):
 def test_builtin_apply_stays_reachable(engine):
     # bootstrap stashes it before commands.tcl can shadow it
     assert run(engine, "tcl_apply {{x} {return $x}} ok").output == "ok"
+
+
+def test_reload_picks_up_externally_written_state(store, engine):
+    # simulate a one-off `smeggdrop repl` fix landing on disk while the
+    # engine is already running, the exact scenario hot reload is for
+    other = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        run(other, "proc surprise {} {return from_outside}")
+    finally:
+        other.close()
+
+    assert not run(engine, "surprise").ok  # not visible yet
+    errors = engine.reload()
+    assert errors == {}
+    assert run(engine, "surprise").output == "from_outside"
+
+
+def test_reload_preserves_engine_usability(engine):
+    engine.reload()
+    assert run(engine, "expr {6 * 7}").output == "42"
+
+
+def test_reload_reports_load_errors(store):
+    # write something that will fail to install, then confirm reload
+    # surfaces it the same way startup does
+    engine = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        store.save_many("procs", {"broken": "{} {unbalanced {"})
+        errors = engine.reload()
+        assert any("broken" in k for k in errors)
+        assert engine.load_errors == errors
+    finally:
+        engine.close()
+
+
+def test_reload_does_not_affect_concurrent_eval_ordering(store):
+    # a slow eval and a reload issued back-to-back must not interleave —
+    # reload only ever sees the interpreter in a consistent pre- or
+    # post-eval state, never mid-eval
+    engine = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        import threading
+
+        results = []
+
+        def slow_eval():
+            results.append(("eval", run(engine, "after 200; expr {1 + 1}").output))
+
+        t = threading.Thread(target=slow_eval)
+        t.start()
+        errors = engine.reload()
+        t.join()
+
+        assert errors == {}
+        assert results == [("eval", "2")]
+    finally:
+        engine.close()
