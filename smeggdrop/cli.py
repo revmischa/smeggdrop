@@ -10,12 +10,16 @@ from pathlib import Path
 
 from smeggdrop.audit import audit_state
 from smeggdrop.engine import Engine, EvalRequest, Limits
-from smeggdrop.state import FileStateStore
+from smeggdrop.state import CATEGORIES, open_store
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="smeggdrop")
-    parser.add_argument("--state", default="state", help="state directory (default: ./state)")
+    parser.add_argument(
+        "--state",
+        default="state",
+        help="state directory, or s3://bucket/prefix (default: ./state)",
+    )
     parser.add_argument("--tcl-dir", default=None, help="override bundled tcl bootstrap dir")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -42,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     audit.add_argument("--arg-value", default="test", help="dummy argument (default: test)")
 
+    migrate = sub.add_parser(
+        "migrate", help="copy state into another store (e.g. a file dir into s3)"
+    )
+    migrate.add_argument("destination", help="target directory or s3://bucket/prefix")
+
     sub.add_parser(
         "slack",
         help="run the slack bot over socket mode "
@@ -63,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
         return cmd_repl(args)
     if args.command == "slack":
         return cmd_slack(args)
+    if args.command == "migrate":
+        return cmd_migrate(args)
     return cmd_audit(args)
 
 
@@ -73,7 +84,7 @@ def cmd_repl(args) -> int:
         pass
 
     engine = Engine(
-        FileStateStore(args.state),
+        open_store(args.state),
         tcl_dir=args.tcl_dir,
         limits=Limits(eval_time_seconds=args.time_limit),
         words_file=args.words,
@@ -110,26 +121,65 @@ def cmd_repl(args) -> int:
 
 
 def cmd_slack(args) -> int:
+    import os
+    import signal
+
     from smeggdrop.hardening import apply_memory_limit
     from smeggdrop.platforms.slack import SlackConfig, run_socket_mode
 
     apply_memory_limit()
     cfg = SlackConfig.from_env()
     engine = Engine(
-        FileStateStore(args.state),
+        open_store(args.state),
         tcl_dir=args.tcl_dir,
         limits=Limits(eval_time_seconds=cfg.time_limit),
         words_file=cfg.words_file,
     )
+
+    def on_hup(signum, frame):
+        # runs on the main thread; reload() just enqueues onto the same
+        # worker thread evals use, so this never interrupts one in flight
+        log = logging.getLogger("smeggdrop.cli")
+        log.info("SIGHUP received, reloading state from disk")
+        try:
+            errors = engine.reload()
+            log.info("reload complete (%d load errors)", len(errors))
+        except Exception:
+            log.exception("reload failed")
+
+    signal.signal(signal.SIGHUP, on_hup)
+
+    # written for reload-bot.sh to find us: `uv run` forks rather than
+    # execing, so the launching shell's $$ isn't this process's pid — only
+    # we know our own pid reliably, for a file store only (an s3 uri has
+    # no local directory to drop a pidfile in, and Lambda doesn't need one)
+    pidfile = None
+    if not args.state.startswith("s3://"):
+        pidfile = Path(args.state) / ".smeggdrop.pid"
+        pidfile.write_text(str(os.getpid()))
+
     try:
         run_socket_mode(engine, cfg)
     finally:
+        if pidfile is not None:
+            pidfile.unlink(missing_ok=True)
         engine.close()
     return 0
 
 
+def cmd_migrate(args) -> int:
+    source = open_store(args.state)
+    destination = open_store(args.destination)
+    for category in CATEGORIES:
+        entries = source.load(category)
+        destination.load(category)  # so an existing destination is merged, not replaced
+        destination.save_many(category, entries)
+        print(f"{category}: copied {len(entries)}")
+    return 0
+
+
 def cmd_audit(args) -> int:
-    store = FileStateStore(args.state)
+    store = open_store(args.state)
     report = audit_state(
         store,
         tcl_dir=args.tcl_dir,

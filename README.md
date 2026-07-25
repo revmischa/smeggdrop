@@ -54,6 +54,15 @@ EOF
 ./run-slack-dev.sh state-local          # or any state dir
 ```
 
+Edited state some other way while the bot's up (a one-off `smeggdrop repl`
+fix)? `./reload-bot.sh state-local` reloads it from disk without dropping
+the Slack connection or restarting the process — the reload is queued on
+the same worker thread evals run on, so it can't interrupt one in flight,
+and Socket Mode never reconnects. It's a signal (`SIGHUP`), not a lock:
+the file store still has no cross-process write coordination, so this
+doesn't protect against a repl edit and a live eval writing at the exact
+same instant — it just avoids the multi-second outage a full restart costs.
+
 Slack-specific behaviour worth knowing: mentions are resolved to plain
 nicks on the way in, so procs written for irc see `deathto winkie` rather
 than `deathto <@U03S5JZ7U>`; mIRC colour codes are stripped from replies
@@ -69,11 +78,32 @@ Production runs the Events API on Lambda from a container image
 - set **reserved concurrency to 1** — evals are serialized by design
 - grant the function role `lambda:InvokeFunction` on itself (bolt's lazy
   listeners ack within Slack's 3s window, then re-invoke to run the eval)
-- state is ephemeral per warm container until the S3 store lands; mount
-  EFS at `SMEGGDROP_STATE` if you need durability before then
+- set `SMEGGDROP_STATE=s3://bucket/prefix` for durable state, and give the
+  role `s3:GetObject`/`s3:PutObject` on it
+
+## State stores
+
+`--state` (and `SMEGGDROP_STATE`) takes a directory or an `s3://` uri, and
+`migrate` copies between them:
+
+```sh
+uv run smeggdrop --state ./state-local migrate s3://my-bucket/smeggdrop
+```
+
+The directory layout is the perl bot's (one sha1-named file per proc plus
+an `_index`). S3 packs each category into a single JSON object instead:
+6,600 objects would mean 6,600 GETs on every cold start, while the whole
+state is ~6 MB — one GET to load, one PUT per eval that changes something.
+Turn on bucket versioning and every eval becomes a restorable version.
+
+Writes are conditional on the ETag that was loaded, so if a second process
+does write, its changes are merged rather than clobbered. That's a backstop
+for cold-start overlap, not a licence to run more than one writer.
 
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
+`SMEGGDROP_BLOCKED_USERS` (comma-separated slack user IDs — not
+names, which anyone can change — silently ignored, no reply),
 `SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`,
 `SMEGGDROP_MEMORY_MB` (default 2048, 0 disables).
 
@@ -105,6 +135,12 @@ So ~91% demonstrably work. Nearly all remaining failures are data rot
 rather than port breakage: helpers their authors deleted years ago,
 services that no longer resolve (`i.buttes.org`, `magick.buttes.org`), and
 a few deliberate infinite loops.
+
+The failure count is also pessimistic in a way that can't be automated
+away: plenty of procs raise on purpose, because the error message is the
+joke — `ncock 24` answers "COCK SIZE OFF THE CHARTS", and a handful more
+refuse with `please see a dentist for further assistance`. Those are
+working procs that the audit has no way to tell apart from broken ones.
 
 ## Security model
 

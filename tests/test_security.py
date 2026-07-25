@@ -146,3 +146,31 @@ def test_post_body_capped(server, fetcher):
 def test_unsupported_method_refused(fetcher):
     with pytest.raises(FetchError, match="method"):
         fetcher.fetch("http://example.com/", method="DELETE")
+
+
+def test_redirect_to_private_address_is_blocked_under_production_policy():
+    # named regression for a specific attack shape: an attacker-controlled
+    # public host redirects to a loopback/private target, hoping the
+    # redirect hop skips revalidation. It doesn't -- validate() runs again
+    # on every hop, under whatever policy the caller actually configured
+    # (production default: allow_private=False), not a relaxed test-only one.
+    from unittest.mock import patch
+
+    fetcher = SafeFetcher(FetchPolicy(timeout=3))
+
+    class FakeRedirectResponse:
+        status = 302
+        headers = {"Location": "http://127.0.0.1/secret"}
+
+        def read(self, n):
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    with patch.object(fetcher._opener, "open", return_value=FakeRedirectResponse()):
+        with pytest.raises(FetchError, match="non-public address"):
+            fetcher.fetch("http://example.com/")

@@ -134,6 +134,12 @@ def test_slack_mangled_url_unwrapped(engine, cfg):
         ("`tcl expr 1`", "tcl expr 1"),
         ("a &amp; b &lt;c&gt;", "a & b <c>"),
         ("plain text", "plain text"),
+        # regression: slack sometimes delivers link markup with the angle
+        # brackets html-escaped (&lt;url|label&gt; instead of <url|label>) --
+        # observed live from a real user pasting <http://x|x>. Unescaping
+        # has to happen before the url-unwrap regex or it never fires.
+        ("&lt;http://example.com|example.com&gt;", "http://example.com"),
+        ("&lt;https://example.com/x&gt;", "https://example.com/x"),
     ],
 )
 def test_unfuck_slack_message(mangled, clean):
@@ -396,3 +402,74 @@ def test_retry_after_header_is_honoured():
         response = Response()
 
     assert retry_after_seconds(Err()) == 7.0
+
+
+@pytest.mark.parametrize(
+    "text,code",
+    [
+        ("tcl `snoe`", "snoe"),
+        ("tcl ```expr {1 + 1}```", "expr {1 + 1}"),
+        ("`tcl snoe`", "snoe"),
+        ("tcl expr {1 + 1}", "expr {1 + 1}"),
+    ],
+)
+def test_backtick_wrapped_commands_run(engine, cfg, text, code):
+    # people copy commands out of code-formatted messages
+    from smeggdrop.platforms.slack import unwrap_backticks, unfuck_slack_message
+    from smeggdrop.platforms import extract_code
+
+    extracted = extract_code(unfuck_slack_message(text), cfg.trigger)
+    assert unwrap_backticks(extracted) == code
+
+
+def test_backticked_command_evaluates(engine, cfg):
+    client = StubClient()
+    assert handle_message_event(engine, client, event("tcl `expr {6 * 7}`"), cfg)
+    assert client.posted == [("C123", "```42```")]
+
+
+def test_html_escaped_link_markup_reaches_the_fetcher(engine, cfg):
+    # regression: this exact shape (html-escaped <url|label>) was observed
+    # live and used to fail with "refusing scheme ''" -- a malformed-url
+    # artifact of the ordering bug, not a real SSRF block. After the fix it
+    # should unwrap to a clean http:// URL and fail for the real reason
+    # (unresolvable host), proving the fetcher is actually being reached.
+    client = StubClient()
+    handle_message_event(
+        engine, client, event("tcl core::curl &lt;http://nonexistent.invalid|x&gt;"), cfg
+    )
+    assert len(client.posted) == 1
+    assert "cannot resolve" in client.posted[0][1]
+    assert "refusing scheme ''" not in client.posted[0][1]
+
+
+def test_blocked_user_is_silently_ignored(engine):
+    cfg = SlackConfig(blocked_users=frozenset({"U1"}))
+    client = StubClient(user_names={"U1": "attacker"})
+    assert not handle_message_event(engine, client, event("tcl expr {1 + 1}"), cfg)
+    assert client.posted == []
+
+
+def test_blocked_user_keyed_on_id_not_display_name(engine):
+    # blocking must survive a nick/display-name change -- it's the same
+    # slack account, U1, regardless of what name it currently shows
+    cfg = SlackConfig(blocked_users=frozenset({"U1"}))
+    client = StubClient(user_names={"U1": "totally-different-name-now"})
+    assert not handle_message_event(engine, client, event("tcl expr {1 + 1}"), cfg)
+    assert client.posted == []
+
+
+def test_other_users_unaffected_by_block(engine, cfg):
+    blocking_cfg = SlackConfig(blocked_users=frozenset({"U999"}))
+    client = StubClient(user_names={"U1": "alice"})
+    assert handle_message_event(engine, client, event("tcl expr {1 + 1}"), blocking_cfg)
+    assert client.posted == [("C123", "```2```")]
+
+
+def test_blocked_users_config_from_env():
+    cfg = SlackConfig.from_env({"SMEGGDROP_BLOCKED_USERS": "U1, U2 ,"})
+    assert cfg.blocked_users == frozenset({"U1", "U2"})
+
+
+def test_no_blocked_users_by_default():
+    assert SlackConfig().blocked_users == frozenset()

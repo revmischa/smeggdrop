@@ -2,10 +2,12 @@
 
 The engine and bolt app are built once per execution environment and reused
 across invocations, so the interp stays warm. Evals are serialized by the
-engine's worker thread; run this function with reserved concurrency 1 until
-the S3 state store lands — with the file store, state only persists for the
-life of a warm container (mount EFS at SMEGGDROP_STATE if you need
-durability before then).
+engine's worker thread; run this function with reserved concurrency 1.
+
+Point SMEGGDROP_STATE at s3://bucket/prefix for durable state — the file
+store only lasts as long as a warm container. The S3 store merges
+concurrent writers rather than clobbering them, but single-writer is still
+the intended configuration.
 
 Lazy listeners re-invoke this same function (bolt's FaaS pattern), so the
 function role needs lambda:InvokeFunction on itself.
@@ -25,11 +27,11 @@ def _handler():
 
     from smeggdrop.engine import Engine, Limits
     from smeggdrop.platforms.slack import SlackConfig, build_app
-    from smeggdrop.state import FileStateStore
+    from smeggdrop.state import open_store
 
     cfg = SlackConfig.from_env()
     engine = Engine(
-        FileStateStore(cfg.state_dir),
+        open_store(cfg.state_dir),
         limits=Limits(eval_time_seconds=cfg.time_limit),
         words_file=cfg.words_file,
     )
