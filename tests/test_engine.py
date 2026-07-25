@@ -138,23 +138,95 @@ def test_oversized_value_not_persisted(store):
     assert FileStateStore(store.root).load("vars") == {}
 
 
+class CountingFetcher:
+    def __init__(self):
+        self.calls = []
+
+    def fetch(self, url, method="GET", body=None):
+        self.calls.append((method, url, body))
+        return 200, {"Content-Type": "text/plain"}, f"ok:{url}"
+
+
 def test_curl_call_cap(store):
-    class CountingFetcher:
-        calls = 0
-
-        def fetch(self, url):
-            CountingFetcher.calls += 1
-            return 200, "ok"
-
+    fetcher = CountingFetcher()
     engine = Engine(store, limits=Limits(eval_time_seconds=2, curl_max_calls=2),
-                    fetcher=CountingFetcher())
+                    fetcher=fetcher)
     try:
         result = run(engine, "for {set i 0} {$i < 5} {incr i} {core::curl http://example.com/}")
         assert not result.ok
         assert "limit" in result.output
-        assert CountingFetcher.calls == 2
+        assert len(fetcher.calls) == 2
     finally:
         engine.close()
+
+
+def test_http_compat_from_sandbox(store):
+    fetcher = CountingFetcher()
+    engine = Engine(store, limits=Limits(eval_time_seconds=2), fetcher=fetcher)
+    try:
+        # [http get $url] -> [code {headers} body], like the tclcurl-era http.tcl
+        assert run(engine, "lindex [http get http://example.com/] 0").output == "200"
+        assert run(engine, "lindex [http get http://example.com/] 2").output == "ok:http://example.com/"
+        # meta_proc prefix matching: "http g" resolves to get
+        assert run(engine, "lindex [http g http://example.com/] 0").output == "200"
+
+        result = run(engine, "http post http://example.com/submit q {a b} lang tcl")
+        assert result.ok
+        method, url, body = fetcher.calls[-1]
+        assert method == "POST"
+        assert body == "q=a+b&lang=tcl"
+
+        headers = run(engine, "http head http://example.com/").output
+        assert "Content-Type" in headers
+    finally:
+        engine.close()
+
+
+def test_urlencode_builtin(engine):
+    assert run(engine, "core::urlencode {a b&c}").output == "a+b%26c"
+
+
+def test_tcl_automatic_error_vars_not_persisted(store, engine):
+    result = run(engine, "catch {nonexistent-cmd}; set x done")
+    assert result.ok
+    engine.close()
+    saved = FileStateStore(store.root).load("vars")
+    assert "x" in saved
+    assert "errorInfo" not in saved
+    assert "errorCode" not in saved
+
+
+def test_interp_eval_shim(engine):
+    # cache::fetch runs its miss-script through interp_eval
+    assert run(engine, "cache fetch b k {expr {2 + 3}}").output == "5"
+    assert run(engine, "cache get b k").output == "5"
+
+
+def test_loglines_reach_sandbox(engine):
+    lines = ((1700000000, "alice", "alice@host", "hello there"),
+             (1700000001, "bob", "bob@host", "hi alice"))
+    result = engine.eval(EvalRequest(code="llength [log]", loglines=lines))
+    assert result.output == "2"
+    result = engine.eval(EvalRequest(code="lindex [log] 1 3", loglines=lines))
+    assert result.output == "hi alice"
+
+
+def test_names_and_hostmask_shims(engine):
+    result = engine.eval(EvalRequest(code="names", nicks=("alice", "bob")))
+    assert engine.interp.splitlist(result.output) == ("alice", "bob")
+
+    lines = ((1700000000, "Alice", "alice!a@example.org", "yo"),)
+    result = engine.eval(EvalRequest(code="hostmask alice", loglines=lines))
+    assert result.output == "alice!a@example.org"
+    result = engine.eval(EvalRequest(code="hostmask stranger", loglines=()))
+    assert result.output == "stranger!unknown@unknown"
+
+    # regression found live: legacy procs (remote_command_state) call this
+    # bare, expecting the caller's own hostmask -- "no target" must mean
+    # self, same convention as name
+    lines = ((1700000000, "bob", "bob!b@example.org", "hi"),)
+    result = engine.eval(EvalRequest(code="hostmask", nick="bob", loglines=lines))
+    assert result.output == "bob!b@example.org"
 
 
 def test_legacy_state_dir_loads(tmp_path):
@@ -171,5 +243,89 @@ def test_legacy_state_dir_loads(tmp_path):
     try:
         assert engine.load_errors == {}
         assert run(engine, "greet world").output == "hello world"
+    finally:
+        engine.close()
+
+
+def test_apply_supports_both_conventions(engine):
+    # Tcl 8.5+ builtin: a lambda
+    assert run(engine, "apply {{x} {expr {$x * 2}}} 21").output == "42"
+    assert run(engine, "apply {{a b} {expr {$a + $b}}} 1 2").output == "3"
+
+    # smeggdrop's older convention: a command plus an argument list, which
+    # concat flattens
+    assert run(engine, "apply {format %s-%s} {a b}").output == "a-b"
+    assert run(engine, "apply {string toupper} {hi}").output == "HI"
+
+    # the saved state contains procs using each, so both must work in one
+    # interpreter
+    assert run(engine, "proc double x {expr {$x * 2}}").ok
+    assert run(engine, "apply {double} {5}").output == "10"
+
+
+def test_apply_reports_real_errors(engine):
+    result = run(engine, "apply {{x} {this-does-not-exist}} 1")
+    assert not result.ok
+    assert "this-does-not-exist" in result.output
+
+
+def test_builtin_apply_stays_reachable(engine):
+    # bootstrap stashes it before commands.tcl can shadow it
+    assert run(engine, "tcl_apply {{x} {return $x}} ok").output == "ok"
+
+
+def test_reload_picks_up_externally_written_state(store, engine):
+    # simulate a one-off `smeggdrop repl` fix landing on disk while the
+    # engine is already running, the exact scenario hot reload is for
+    other = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        run(other, "proc surprise {} {return from_outside}")
+    finally:
+        other.close()
+
+    assert not run(engine, "surprise").ok  # not visible yet
+    errors = engine.reload()
+    assert errors == {}
+    assert run(engine, "surprise").output == "from_outside"
+
+
+def test_reload_preserves_engine_usability(engine):
+    engine.reload()
+    assert run(engine, "expr {6 * 7}").output == "42"
+
+
+def test_reload_reports_load_errors(store):
+    # write something that will fail to install, then confirm reload
+    # surfaces it the same way startup does
+    engine = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        store.save_many("procs", {"broken": "{} {unbalanced {"})
+        errors = engine.reload()
+        assert any("broken" in k for k in errors)
+        assert engine.load_errors == errors
+    finally:
+        engine.close()
+
+
+def test_reload_does_not_affect_concurrent_eval_ordering(store):
+    # a slow eval and a reload issued back-to-back must not interleave —
+    # reload only ever sees the interpreter in a consistent pre- or
+    # post-eval state, never mid-eval
+    engine = Engine(store, limits=Limits(eval_time_seconds=2))
+    try:
+        import threading
+
+        results = []
+
+        def slow_eval():
+            results.append(("eval", run(engine, "after 200; expr {1 + 1}").output))
+
+        t = threading.Thread(target=slow_eval)
+        t.start()
+        errors = engine.reload()
+        t.join()
+
+        assert errors == {}
+        assert results == [("eval", "2")]
     finally:
         engine.close()

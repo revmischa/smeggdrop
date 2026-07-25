@@ -34,6 +34,20 @@ def test_validate_allows_public_literal():
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length)
+        reply = b"posted:" + body
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(reply)))
+        self.end_headers()
+        self.wfile.write(reply)
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("X-Smeg", "yes")
+        self.end_headers()
+
     def do_GET(self):
         if self.path == "/hello":
             body = b"hello world"
@@ -75,17 +89,22 @@ def server():
 @pytest.fixture
 def fetcher():
     # allow_private so tests can hit the local server; production default is off
-    return SafeFetcher(FetchPolicy(allow_private=True, max_bytes=1000, max_redirects=2, timeout=5))
+    return SafeFetcher(
+        FetchPolicy(
+            allow_private=True, max_bytes=1000, max_post_bytes=1000, max_redirects=2, timeout=5
+        )
+    )
 
 
 def test_fetch_ok(server, fetcher):
-    status, body = fetcher.fetch(server + "/hello")
+    status, headers, body = fetcher.fetch(server + "/hello")
     assert status == 200
     assert body == "hello world"
+    assert headers.get("Content-Length") == str(len("hello world"))
 
 
 def test_fetch_follows_redirect(server, fetcher):
-    status, body = fetcher.fetch(server + "/redirect")
+    status, _, body = fetcher.fetch(server + "/redirect")
     assert status == 200
     assert body == "hello world"
 
@@ -96,11 +115,62 @@ def test_fetch_redirect_loop_capped(server, fetcher):
 
 
 def test_fetch_body_capped(server, fetcher):
-    status, body = fetcher.fetch(server + "/big")
+    status, _, body = fetcher.fetch(server + "/big")
     assert status == 200
     assert len(body) == 1000
 
 
 def test_fetch_non_2xx_returned_not_raised(server, fetcher):
-    status, _ = fetcher.fetch(server + "/nope")
+    status, _, _ = fetcher.fetch(server + "/nope")
     assert status == 404
+
+
+def test_fetch_post(server, fetcher):
+    status, _, body = fetcher.fetch(server + "/echo", method="POST", body="a=1&b=2")
+    assert status == 200
+    assert body == "posted:a=1&b=2"
+
+
+def test_fetch_head(server, fetcher):
+    status, headers, body = fetcher.fetch(server + "/hello", method="HEAD")
+    assert status == 200
+    assert headers.get("X-Smeg") == "yes"
+    assert body == ""
+
+
+def test_post_body_capped(server, fetcher):
+    with pytest.raises(FetchError, match="post body"):
+        fetcher.fetch(server + "/echo", method="POST", body="x" * 5000)
+
+
+def test_unsupported_method_refused(fetcher):
+    with pytest.raises(FetchError, match="method"):
+        fetcher.fetch("http://example.com/", method="DELETE")
+
+
+def test_redirect_to_private_address_is_blocked_under_production_policy():
+    # named regression for a specific attack shape: an attacker-controlled
+    # public host redirects to a loopback/private target, hoping the
+    # redirect hop skips revalidation. It doesn't -- validate() runs again
+    # on every hop, under whatever policy the caller actually configured
+    # (production default: allow_private=False), not a relaxed test-only one.
+    from unittest.mock import patch
+
+    fetcher = SafeFetcher(FetchPolicy(timeout=3))
+
+    class FakeRedirectResponse:
+        status = 302
+        headers = {"Location": "http://127.0.0.1/secret"}
+
+        def read(self, n):
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    with patch.object(fetcher._opener, "open", return_value=FakeRedirectResponse()):
+        with pytest.raises(FetchError, match="non-public address"):
+            fetcher.fetch("http://example.com/")

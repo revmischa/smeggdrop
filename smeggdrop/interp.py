@@ -32,6 +32,7 @@ BOOTSTRAP_FILES = (
     "commands.tcl",
     "meta.tcl",
     "cache.tcl",
+    "httpx.tcl",
     "bootstrap.tcl",
 )
 SLAVE = "smeggdrop"
@@ -46,6 +47,12 @@ class SafeTclInterp:
         self.slave = SLAVE
         self.tk.call("interp", "create", "-safe", self.slave)
 
+        # Stash the builtin lambda [apply] before anything can shadow it —
+        # commands.tcl installs smeggdrop's own [apply] (a different
+        # convention), and saved procs use both. bootstrap.tcl defines a
+        # dispatcher that needs the real one under this name.
+        self.eval("catch {rename apply tcl_apply}")
+
         tcl_dir = Path(tcl_dir) if tcl_dir else DEFAULT_TCL_DIR
         for name in BOOTSTRAP_FILES:
             path = tcl_dir / name
@@ -55,6 +62,18 @@ class SafeTclInterp:
         # safe interps can't initialize `clock format` themselves (needs
         # tzdata off disk), so run clock in the master on the slave's behalf
         self.tk.call("interp", "alias", self.slave, "clock", "", "clock")
+
+        # `encoding` is hidden in safe interps because `encoding system`
+        # mutates process state; the read-only subcommands are harmless and
+        # plenty of saved procs use them
+        self.tk.call(
+            "proc", "::_smeggdrop_encoding", "args",
+            'set sub [lindex $args 0]\n'
+            'if {$sub ni {convertfrom convertto names}} '
+            '{error "encoding $sub is not allowed in the sandbox"}\n'
+            "uplevel #0 [linsert $args 0 encoding]",
+        )
+        self.tk.call("interp", "alias", self.slave, "encoding", "", "::_smeggdrop_encoding")
 
         for name, fn in (builtins or {}).items():
             self.register_builtin(name, fn)
@@ -86,8 +105,16 @@ class SafeTclInterp:
     def eval_limited(self, script, seconds: int) -> str:
         """Evaluate with a wall-clock limit enforced by the master.
 
-        Slaves cannot modify their own limits, so sandboxed code can't
-        lift this.
+        Slaves cannot modify their own limits, so sandboxed code can't lift
+        this.
+
+        Deliberately not using tcl's `command` limit as well: its counter is
+        cumulative for the life of the interpreter, not per-eval, so any
+        fixed ceiling is permanently tripped by the first runaway loop and
+        every later eval fails with "command count limit exceeded". Tcl
+        checks the time limit at the same granularity anyway, so the clock
+        catches tight loops on its own; single huge allocations are handled
+        by the process memory cap (see hardening.py).
         """
         deadline = int(time.time()) + max(1, int(seconds))
         self.tk.call("interp", "limit", self.slave, "time", "-seconds", deadline)
@@ -170,12 +197,31 @@ class SafeTclInterp:
         out = {}
         for name in self.splitlist(self.eval("info procs")):
             try:
-                args = self.eval(("info", "args", name))
+                args = self.arg_spec(name)
                 body = self.eval(("info", "body", name))
             except TclError:
                 continue
             out[name] = "{%s} {%s}" % (args, body)
         return out
+
+    def arg_spec(self, name: str) -> str:
+        """Rebuild a proc's argument list *with* default values.
+
+        `info args` returns bare names, so serializing from it silently
+        drops defaults and turns `proc p {{x 1}}` into `proc p {x}` — a
+        proc that used to be callable with no arguments stops being one.
+        `info default` recovers them.
+        """
+        spec = []
+        for arg in self.splitlist(self.eval(("info", "args", name))):
+            has_default = self.eval(("info", "default", name, arg, "::_smeggdrop_default"))
+            if has_default == "1":
+                default = self.eval(("set", "::_smeggdrop_default"))
+                spec.append(self.eval(("list", arg, default)))
+            else:
+                spec.append(arg)
+        self.eval("catch {unset ::_smeggdrop_default}")
+        return self.eval(("list", *spec)) if spec else ""
 
     def vars(self) -> dict[str, str]:
         out = {}

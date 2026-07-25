@@ -38,6 +38,31 @@ def name_sha1(name: str) -> str:
     return hashlib.sha1(name.encode("utf-8")).hexdigest()
 
 
+def decode(data: bytes) -> str:
+    """Decode saved state, tolerating the perl bot's raw bytes.
+
+    That implementation used `use bytes` and wrote whatever came off irc, so
+    a handful of procs hold latin-1: `¯`·.¸¸.·´¯` wave decorations, `°_o`
+    faces, the odd accented word. Decoding those with errors="replace"
+    silently turns each one into U+FFFD and destroys the art — it showed up
+    as `<?>_o` in okeybattle. latin-1 maps every byte to a codepoint, so it
+    is a lossless fallback; anything written from here on is utf-8.
+    """
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+def open_store(location: str) -> StateStore:
+    """Open a state store from a path or an s3:// uri."""
+    if location.startswith("s3://"):
+        from smeggdrop.state_s3 import S3StateStore
+
+        return S3StateStore.from_uri(location)
+    return FileStateStore(location)
+
+
 class FileStateStore:
     def __init__(self, root: Path | str):
         self.root = Path(root)
@@ -52,7 +77,7 @@ class FileStateStore:
         for name, sha in index.items():
             path = self.root / category / sha
             try:
-                data = path.read_text(encoding="utf-8", errors="replace")
+                data = decode(path.read_bytes())
             except FileNotFoundError:
                 # damage, not deletion — keep the entry so the loss stays
                 # visible (and recoverable if the file turns up)
@@ -86,7 +111,7 @@ class FileStateStore:
         if not path.exists():
             return {}
         index: dict[str, str] = {}
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in decode(path.read_bytes()).splitlines():
             line = line.strip()
             if not line:
                 continue
