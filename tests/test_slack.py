@@ -441,3 +441,35 @@ def test_html_escaped_link_markup_reaches_the_fetcher(engine, cfg):
     assert len(client.posted) == 1
     assert "cannot resolve" in client.posted[0][1]
     assert "refusing scheme ''" not in client.posted[0][1]
+
+
+def test_blocked_user_is_silently_ignored(engine):
+    cfg = SlackConfig(blocked_users=frozenset({"U1"}))
+    client = StubClient(user_names={"U1": "attacker"})
+    assert not handle_message_event(engine, client, event("tcl expr {1 + 1}"), cfg)
+    assert client.posted == []
+
+
+def test_blocked_user_keyed_on_id_not_display_name(engine):
+    # blocking must survive a nick/display-name change -- it's the same
+    # slack account, U1, regardless of what name it currently shows
+    cfg = SlackConfig(blocked_users=frozenset({"U1"}))
+    client = StubClient(user_names={"U1": "totally-different-name-now"})
+    assert not handle_message_event(engine, client, event("tcl expr {1 + 1}"), cfg)
+    assert client.posted == []
+
+
+def test_other_users_unaffected_by_block(engine, cfg):
+    blocking_cfg = SlackConfig(blocked_users=frozenset({"U999"}))
+    client = StubClient(user_names={"U1": "alice"})
+    assert handle_message_event(engine, client, event("tcl expr {1 + 1}"), blocking_cfg)
+    assert client.posted == [("C123", "```2```")]
+
+
+def test_blocked_users_config_from_env():
+    cfg = SlackConfig.from_env({"SMEGGDROP_BLOCKED_USERS": "U1, U2 ,"})
+    assert cfg.blocked_users == frozenset({"U1", "U2"})
+
+
+def test_no_blocked_users_by_default():
+    assert SlackConfig().blocked_users == frozenset()

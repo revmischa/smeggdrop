@@ -38,6 +38,7 @@ MAX_MESSAGES = 3
 class SlackConfig:
     trigger: re.Pattern = DEFAULT_TRIGGER
     channels: frozenset[str] = frozenset()  # empty = all channels
+    blocked_users: frozenset[str] = frozenset()  # slack user IDs, not names
     state_dir: str = "state"
     time_limit: int = 5
     words_file: str | None = None
@@ -48,12 +49,16 @@ class SlackConfig:
         channels = frozenset(
             c.strip() for c in env.get("SMEGGDROP_CHANNELS", "").split(",") if c.strip()
         )
+        blocked_users = frozenset(
+            u.strip() for u in env.get("SMEGGDROP_BLOCKED_USERS", "").split(",") if u.strip()
+        )
         return cls(
             # case-insensitive like the default: chat clients capitalize
             trigger=re.compile(
                 env.get("SMEGGDROP_TRIGGER", DEFAULT_TRIGGER.pattern), re.IGNORECASE
             ),
             channels=channels,
+            blocked_users=blocked_users,
             state_dir=env.get("SMEGGDROP_STATE", "state"),
             time_limit=int(env.get("SMEGGDROP_TIME_LIMIT", "5")),
             words_file=env.get("SMEGGDROP_WORDS") or None,
@@ -286,6 +291,11 @@ def handle_message_event(
 
     channel = event.get("channel") or ""
     if cfg.channels and channel not in cfg.channels:
+        return False
+
+    # keyed on the immutable slack user id, never on nick/display name
+    # (which is user-controlled and can be changed or duplicated)
+    if (msg.get("user") or "") in cfg.blocked_users:
         return False
 
     text = msg.get("text") or ""

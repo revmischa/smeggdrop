@@ -102,6 +102,8 @@ for cold-start overlap, not a licence to run more than one writer.
 
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
+`SMEGGDROP_BLOCKED_USERS` (comma-separated slack user IDs — not
+names, which anyone can change — silently ignored, no reply),
 `SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`,
 `SMEGGDROP_MEMORY_MB` (default 2048, 0 disables).
 
