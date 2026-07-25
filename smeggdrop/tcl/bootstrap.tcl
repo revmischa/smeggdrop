@@ -16,7 +16,14 @@ proc log {} {return $context::log}
 
 # best-effort: the old hostmask proc looked nicks up in channel state,
 # which chat platforms don't have; fall back to scanning recent chatter
-proc hostmask {who} {
+# regression found live: remote_command_state calls this bare (no
+# argument) expecting the caller's own hostmask, matching the old
+# eggdrop/irc idiom -- default empty/omitted to [nick], same "no target
+# means self" convention as the name proc.
+proc hostmask {{who {}}} {
+    if {$who eq ""} {
+        set who [nick]
+    }
     foreach line [log] {
         lassign $line _ts _nick _mask _text
         if {[string equal -nocase $_nick $who]} {return $_mask}

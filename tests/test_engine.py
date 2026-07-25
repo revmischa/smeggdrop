@@ -221,6 +221,13 @@ def test_names_and_hostmask_shims(engine):
     result = engine.eval(EvalRequest(code="hostmask stranger", loglines=()))
     assert result.output == "stranger!unknown@unknown"
 
+    # regression found live: legacy procs (remote_command_state) call this
+    # bare, expecting the caller's own hostmask -- "no target" must mean
+    # self, same convention as name
+    lines = ((1700000000, "bob", "bob!b@example.org", "hi"),)
+    result = engine.eval(EvalRequest(code="hostmask", nick="bob", loglines=lines))
+    assert result.output == "bob!b@example.org"
+
 
 def test_legacy_state_dir_loads(tmp_path):
     import hashlib
