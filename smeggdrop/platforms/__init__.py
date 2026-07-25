@@ -10,9 +10,13 @@ in beside it as a new module, not a refactor.
 from __future__ import annotations
 
 import re
+import time
+from collections import deque
 
-# same default the perl bot shipped: "tcl expr 1+1"
-DEFAULT_TRIGGER = re.compile(r"^\s*tcl\s")
+# same default the perl bot shipped: "tcl expr 1+1", but case-insensitive:
+# phone keyboards autocapitalize the first word, so half the messages from
+# mobile arrive as "Tcl ..." and would otherwise be silently ignored
+DEFAULT_TRIGGER = re.compile(r"^\s*tcl\s", re.IGNORECASE)
 
 
 def extract_code(text: str, trigger: re.Pattern[str] = DEFAULT_TRIGGER) -> str | None:
@@ -23,6 +27,28 @@ def extract_code(text: str, trigger: re.Pattern[str] = DEFAULT_TRIGGER) -> str |
     if not match:
         return None
     return trigger.sub("", text, count=1)
+
+
+class ChatLog:
+    """Recent non-trigger chatter per channel, fed to evals as [log].
+
+    Same shape the perl bot kept: (unix_ts, nick, mask, text) rows,
+    accumulated between evals and drained (slurped) by the next one.
+    In-memory only — on Lambda this survives per warm container, which
+    matches how ephemeral the old in-process log was.
+    """
+
+    def __init__(self, max_lines: int = 100):
+        self._max = max_lines
+        self._logs: dict[str, deque] = {}
+
+    def append(self, channel: str, nick: str, mask: str | None, text: str) -> None:
+        log = self._logs.setdefault(channel, deque(maxlen=self._max))
+        log.append((int(time.time()), nick, mask or "", text))
+
+    def slurp(self, channel: str) -> tuple[tuple, ...]:
+        log = self._logs.pop(channel, None)
+        return tuple(log) if log else ()
 
 
 def chunk_output(text: str, max_chunk: int, max_chunks: int) -> list[str]:

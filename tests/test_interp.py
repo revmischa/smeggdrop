@@ -39,6 +39,13 @@ def test_clock_aliased_from_master(interp):
     assert "1970" in interp.eval("clock format 0 -gmt 1")
 
 
+def test_encoding_readonly_subcommands(interp):
+    assert interp.eval("encoding convertto utf-8 abc") == "abc"
+    assert "utf-8" in interp.eval("encoding names")
+    with pytest.raises(TclError, match="not allowed"):
+        interp.eval("encoding system iso8859-1")
+
+
 def test_tuple_args_are_injection_safe(interp):
     hostile = 'a [exec ls] {b} $env(PATH) "; exit'
     interp.eval(("set", "x", hostile))
@@ -70,6 +77,31 @@ def test_slave_cannot_lift_its_own_limit(interp):
         interp.eval_limited(
             "interp limit {} time -seconds {}; while 1 {}", 1
         )
+
+
+def test_proc_defaults_survive_snapshot(interp):
+    # info args drops defaults; a proc that was callable with no arguments
+    # must stay that way across a save/load cycle
+    interp.eval("proc greet {{who world} {greeting hi}} {return \"$greeting $who\"}")
+    payload = interp.procs()["greet"]
+    assert payload.startswith("{{who world} {greeting hi}}")
+
+    other = SafeTclInterp()
+    try:
+        other.install_proc("greet", payload)
+        assert other.eval("greet") == "hi world"
+        assert other.eval("greet there") == "hi there"
+        # and it survives a second round trip unchanged
+        assert other.procs()["greet"] == payload
+    finally:
+        other.close()
+
+
+def test_arg_spec_without_defaults(interp):
+    interp.eval("proc plain {a b} {expr {$a + $b}}")
+    assert interp.procs()["plain"] == "{a b} {expr {$a + $b}}"
+    interp.eval("proc noargs {} {return 1}")
+    assert interp.procs()["noargs"] == "{} {return 1}"
 
 
 def test_snapshot_serialization_roundtrip(interp):
