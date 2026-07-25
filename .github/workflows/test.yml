@@ -1,0 +1,17 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install tcl + tkinter
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-tk tcl
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --group dev
+      - run: uv run pytest -v
