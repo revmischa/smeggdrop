@@ -107,10 +107,12 @@ names, which anyone can change — silently ignored, no reply),
 `SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`,
 `SMEGGDROP_MEMORY_MB` (default 2048, 0 disables).
 
-Request signatures are verified by bolt. Retried deliveries are dropped
-rather than re-evaluated — running someone's code twice is worse than
-missing it — which does mean a message sent while the bot is restarting is
-lost rather than executed late.
+Request signatures are verified by bolt. Each slack event id runs at most
+once, but a retry whose first delivery was never acked — the bot was
+restarting — still runs, instead of being dropped for merely looking like a
+retry. On lambda one event arrives as two invocations carrying the same
+event id (ack, then eval), so bolt's own re-invocation is exempt from that
+check; deduping it would drop every eval.
 
 `audit` exists so the port can be verified against real accumulated state:
 it loads everything into a throwaway sandbox (nothing persisted, network
@@ -141,6 +143,61 @@ away: plenty of procs raise on purpose, because the error message is the
 joke — `ncock 24` answers "COCK SIZE OFF THE CHARTS", and a handful more
 refuse with `please see a dentist for further assistance`. Those are
 working procs that the audit has no way to tell apart from broken ones.
+
+## Deploying to AWS
+
+`sst.config.ts` (SST v4) deploys the slack adapter as a container-image
+lambda behind a function URL, with state in a versioned S3 bucket.
+
+```sh
+./deploy.sh secret set SlackBotToken xoxb-...
+./deploy.sh secret set SlackSigningSecret ...
+./deploy.sh secret set SlackChannels C03QKEXDS
+./deploy.sh deploy
+```
+
+`deploy.sh` wraps `sst`: the target account is reached by assuming a role
+from an SSO profile, and sst's go sdk resolves `source_profile` to the
+static keys in `~/.aws/credentials` rather than the sso session, so the
+wrapper resolves the chain with the aws cli and hands sst the temporary
+credentials that fall out. Needs a running docker daemon.
+
+Seed the proc library before first use:
+
+```sh
+uv run --with boto3 smeggdrop --state ./state migrate s3://<bucket>/state
+```
+
+### Why a container
+
+The engine runs tcl through `tkinter`, and the AWS lambda python base image
+has no `_tkinter` — the debian python image links against the system libtcl
+and does, so `Dockerfile` builds on that and installs the runtime interface
+client explicitly. sst sets `imageConfig.commands` to the handler, which
+arrives as CMD, so ENTRYPOINT is the RIC.
+
+That rules out SnapStart, which supports neither container images nor —
+more to the point — a state store that must not be frozen: it snapshots at
+publish time, so restored environments would boot with a stale proc
+library. It would also buy almost nothing here. Of a measured 2.75s cold
+start, imports are ~30ms; the rest is fetching state from S3 and
+installing 6,600 procs into a fresh interp, which a snapshot can't skip.
+Warm invocations are ~0.1s. Raising memory from 2048 to 3008 MB changed
+nothing (the work is I/O-bound, and peak usage is 134 MB).
+
+### Switching slack over
+
+Socket mode and an Events API request URL are mutually exclusive. To cut
+over from a locally-run bot: disable socket mode in the app config, set the
+function URL as the request URL under Event Subscriptions, then stop the
+local process. Until that switch, the deployed function receives nothing.
+
+Two caveats worth knowing. Each warm container holds its own interp, built
+from state at its cold start, and doesn't see writes made by another
+container until it recycles — the S3 store merges concurrent writers rather
+than clobbering them, but containers can still diverge for a while under
+real concurrency. And a fresh AWS account starts at 10 concurrent
+executions and a 3008 MB memory ceiling until support raises them.
 
 ## Security model
 

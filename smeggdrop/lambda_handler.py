@@ -18,7 +18,11 @@ from __future__ import annotations
 import logging
 from functools import lru_cache
 
-logging.basicConfig(level=logging.INFO)
+# The lambda runtime installs a root handler before this module is imported,
+# so basicConfig() returns without doing anything and every eval log line is
+# filtered out at the default WARNING level. Set the level on the root logger
+# directly so the operator can still see what is being evaluated and by whom.
+logging.getLogger().setLevel(logging.INFO)
 
 
 @lru_cache(maxsize=1)

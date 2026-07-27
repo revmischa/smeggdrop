@@ -67,7 +67,7 @@ def fake_authorize(**kwargs):
     )
 
 
-def event_request(text, channel="C123", retry_num="0", event_id="Ev1"):
+def event_request(text, channel="C123", retry_num="0", event_id="Ev1", lazy_only=False):
     from slack_bolt.request import BoltRequest
 
     body = {
@@ -87,6 +87,11 @@ def event_request(text, channel="C123", retry_num="0", event_id="Ev1"):
     headers = {"content-type": ["application/json"]}
     if retry_num is not None:
         headers["x-slack-retry-num"] = [retry_num]
+    if lazy_only:
+        # what bolt's lambda lazy runner adds when it re-invokes the function;
+        # the name picks which registered lazy listener to run
+        headers["x-slack-bolt-lazy-only"] = ["1"]
+        headers["x-slack-bolt-lazy-function-name"] = ["evaluate"]
     return BoltRequest(body=json.dumps(body), headers=headers, mode="socket_mode")
 
 
@@ -149,6 +154,20 @@ def test_duplicate_delivery_runs_once(engine, posted):
     app.dispatch(event_request("tcl expr {1 + 1}", retry_num="1", event_id="EvDup"))
     settle()
     assert len(posted) == 1
+
+
+def test_lazy_reinvocation_is_not_deduped(engine, posted):
+    # On lambda one event is two invocations of the same function: the first
+    # acks, then bolt invokes again to run the eval, reusing the event id the
+    # ack already claimed. That second call frequently lands on the same warm
+    # container, so deduping it drops the eval and the bot acks everything and
+    # answers nothing. Observed against the deployed function before the fix.
+    app = make_app(engine, lazy=True)
+    app.dispatch(event_request("tcl expr {1 + 1}", event_id="EvLazy"))
+    assert wait_for(posted, 1) == [("C123", "```2```")]
+
+    app.dispatch(event_request("tcl expr {1 + 1}", event_id="EvLazy", lazy_only=True))
+    assert wait_for(posted, 2) == [("C123", "```2```"), ("C123", "```2```")]
 
 
 def test_retry_of_an_unseen_event_still_runs(engine, posted):

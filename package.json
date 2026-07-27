@@ -1,0 +1,8 @@
+{
+  "name": "smeggdrop",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "sst": "^4.17.1"
+  }
+}
