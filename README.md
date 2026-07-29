@@ -102,6 +102,30 @@ bad eval without unbounded growth. Versioning only survives a bad write
 though, not the bucket going away, so AWS Backup takes a daily copy into a
 separate vault with 35-day retention.
 
+### Undoing a bad eval
+
+Someone trashes the library, you roll the object back:
+
+```sh
+./restore-state.sh list                    # versions, newest first
+./restore-state.sh restore procs <version> # put one back
+./restore-state.sh verify                  # does it still load?
+```
+
+Restoring copies the old version *forward*, so the state you rolled back
+from stays in history and the command prints the id to undo itself with.
+Nothing is destroyed by a restore, including a wrong one.
+
+Note the deployed bot reads state at cold start and holds it in memory, so
+a restore doesn't reach warm containers — redeploy, or wait for them to age
+out. Losing a couple of evals to that is the intended trade: the alternative
+is re-reading ~6 MB from S3 on every message.
+
+For a bucket-level loss rather than a bad write, the daily AWS Backup
+recovery point restores to a fresh bucket. Worth knowing that a completed S3
+backup reports `BackupSizeInBytes: 0` — that's AWS under-reporting, not an
+empty backup; a restore of one was verified byte-identical.
+
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
 `SMEGGDROP_BLOCKED_USERS` (comma-separated slack user IDs — not
