@@ -130,23 +130,24 @@ export default $config({
           actions: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
           resources: [state.arn, $interpolate`${state.arn}/*`],
         },
-      ],
-    });
-
-    // bolt's lazy listeners ack inside slack's 3s window and then re-invoke
-    // this same function to run the eval. Granted separately rather than via
-    // `permissions` because the function can't reference its own arn without
-    // a dependency cycle.
-    new aws.iam.RolePolicy("BotSelfInvoke", {
-      role: bot.nodes.role.name,
-      policy: bot.nodes.function.arn.apply((arn) =>
-        JSON.stringify({
-          Version: "2012-10-17",
-          Statement: [
-            { Effect: "Allow", Action: "lambda:InvokeFunction", Resource: arn },
+        {
+          // bolt's lazy listeners ack inside slack's 3s window and then
+          // re-invoke this same function to run the eval, so the role needs
+          // to be able to invoke it. Matched by name prefix rather than the
+          // function's own arn: referencing that here is a dependency cycle,
+          // and granting it through a separate aws.iam.RolePolicy silently
+          // stops working the moment sst recreates the role -- the policy
+          // stays bound to the old one while pulumi still believes it
+          // exists, which is what took the deployed bot down.
+          actions: ["lambda:InvokeFunction"],
+          resources: [
+            // "BotFunction" is this component's logical name, so the prefix
+            // stays put across the random suffix sst regenerates, without
+            // widening the grant to every function in the stack
+            $interpolate`arn:aws:lambda:${aws.getRegionOutput().name}:${aws.getCallerIdentityOutput().accountId}:function:${$app.name}-${$app.stage}-BotFunction-*`,
           ],
-        }),
-      ),
+        },
+      ],
     });
 
     return {
