@@ -232,11 +232,21 @@ def is_lazy_invocation(headers) -> bool:
     be deduped. It also frequently lands on the same warm container that
     just claimed that id -- dedupe it and the eval never runs at all, which
     looks like a bot that acks everything and answers nothing.
+
+    Bolt's lazy runner always sets the function name alongside the flag, so
+    require both: exempting a request from deduping is worth being narrow
+    about, and one stray header shouldn't be enough to do it.
     """
-    raw = (headers or {}).get("x-slack-bolt-lazy-only")
-    if isinstance(raw, (list, tuple)):
-        raw = raw[0] if raw else None
-    return bool(raw)
+
+    def value(name):
+        raw = (headers or {}).get(name)
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else None
+        return raw
+
+    return bool(value("x-slack-bolt-lazy-only")) and bool(
+        value("x-slack-bolt-lazy-function-name")
+    )
 
 
 class NickCache:

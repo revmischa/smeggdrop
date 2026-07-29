@@ -70,16 +70,10 @@ than `deathto <@U03S5JZ7U>`; mIRC colour codes are stripped from replies
 and `[channel]` reports `#name`, not the channel id, because saved procs
 print it and key cache buckets off it.
 
-Production runs the Events API on Lambda from a container image
-([`Dockerfile.lambda`](Dockerfile.lambda)):
-
-- point the app's event request URL at the function URL / API Gateway;
-  set `SLACK_BOT_TOKEN` and `SLACK_SIGNING_SECRET` on the function
-- set **reserved concurrency to 1** — evals are serialized by design
-- grant the function role `lambda:InvokeFunction` on itself (bolt's lazy
-  listeners ack within Slack's 3s window, then re-invoke to run the eval)
-- set `SMEGGDROP_STATE=s3://bucket/prefix` for durable state, and give the
-  role `s3:GetObject`/`s3:PutObject` on it
+Production runs the Events API on Lambda instead, from a container image —
+see [Deploying to AWS](#deploying-to-aws), which wires all of that up.
+Socket Mode and a request URL are mutually exclusive, so an app does one or
+the other, not both.
 
 ## State stores
 

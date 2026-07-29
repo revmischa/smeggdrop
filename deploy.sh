@@ -24,7 +24,14 @@ fi
 
 creds="$(aws configure export-credentials --profile "$PROFILE" --format env)" || {
     echo "could not resolve credentials for profile '$PROFILE'." >&2
-    echo "if the sso session expired: aws sso login --sso-session int80" >&2
+    sso=$(aws configure get sso_session --profile "$PROFILE" 2>/dev/null \
+        || aws configure get sso_session --profile \
+             "$(aws configure get source_profile --profile "$PROFILE" 2>/dev/null)" 2>/dev/null)
+    if [ -n "$sso" ]; then
+        echo "if the sso session expired: aws sso login --sso-session $sso" >&2
+    else
+        echo "if the sso session expired, log in for profile '$PROFILE'" >&2
+    fi
     exit 1
 }
 eval "$creds"
