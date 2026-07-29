@@ -38,6 +38,73 @@ export default $config({
     // versioned so a trashed proc library can be rolled back to any prior write
     const state = new sst.aws.Bucket("State", { versioning: true });
 
+    // The store packs a whole category into one object, so every eval that
+    // changes anything writes a full copy -- versions accumulate at roughly
+    // 6 MB per changing eval, not per changed proc. Keep enough history to
+    // undo a bad eval (or a bad day) without growing without bound.
+    new aws.s3.BucketLifecycleConfigurationV2("StateLifecycle", {
+      bucket: state.name,
+      rules: [
+        {
+          id: "retain-recent-versions",
+          status: "Enabled",
+          filter: {},
+          noncurrentVersionExpiration: {
+            newerNoncurrentVersions: 200,
+            noncurrentDays: 90,
+          },
+        },
+        {
+          id: "abort-incomplete-uploads",
+          status: "Enabled",
+          filter: {},
+          abortIncompleteMultipartUpload: { daysAfterInitiation: 7 },
+        },
+      ],
+    });
+
+    // Versioning only survives a bad write; it does not survive the bucket
+    // being deleted. A daily backup into a separate vault does.
+    const backupRole = new aws.iam.Role("StateBackupRole", {
+      assumeRolePolicy: JSON.stringify({
+        Version: "2012-10-17",
+        Statement: [
+          {
+            Effect: "Allow",
+            Principal: { Service: "backup.amazonaws.com" },
+            Action: "sts:AssumeRole",
+          },
+        ],
+      }),
+    });
+    for (const [name, arn] of [
+      // these two live at the policy root, not under service-role/
+      ["Backup", "arn:aws:iam::aws:policy/AWSBackupServiceRolePolicyForS3Backup"],
+      ["Restore", "arn:aws:iam::aws:policy/AWSBackupServiceRolePolicyForS3Restore"],
+    ]) {
+      new aws.iam.RolePolicyAttachment(`StateBackupRole${name}`, {
+        role: backupRole.name,
+        policyArn: arn,
+      });
+    }
+
+    const vault = new aws.backup.Vault("StateVault", {});
+    const plan = new aws.backup.Plan("StatePlan", {
+      rules: [
+        {
+          ruleName: "daily",
+          targetVaultName: vault.name,
+          schedule: "cron(0 9 * * ? *)", // 09:00 UTC, off-peak for a chat bot
+          lifecycle: { deleteAfter: 35 },
+        },
+      ],
+    });
+    new aws.backup.Selection("StateSelection", {
+      iamRoleArn: backupRole.arn,
+      planId: plan.id,
+      resources: [state.arn],
+    });
+
     const botToken = new sst.Secret("SlackBotToken");
     const signingSecret = new sst.Secret("SlackSigningSecret");
     const channels = new sst.Secret("SlackChannels", "");
