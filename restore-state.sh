@@ -8,10 +8,6 @@
 # the current one (which itself becomes a new version, so a restore is
 # reversible too).
 #
-#   ./restore-state.sh list                 # what can I roll back to?
-#   ./restore-state.sh restore procs <id>   # put that version back
-#   ./restore-state.sh verify               # does the live state still load?
-#
 # The bot reads state at cold start and caches it, so after a restore give it
 # a new container -- redeploy, or wait for the warm ones to age out.
 set -euo pipefail
@@ -24,7 +20,19 @@ PREFIX="${SMEGGDROP_STATE_PREFIX:-state}"
 
 aws_() { aws --profile "$PROFILE" --region "$REGION" "$@"; }
 
-usage() { sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
+usage() {
+    cat >&2 <<'EOF'
+roll the S3 proc library back to an earlier version
+
+  ./restore-state.sh list                    versions, newest first
+  ./restore-state.sh restore procs <version> put one back
+  ./restore-state.sh verify                  does the live state still load?
+
+override with SMEGGDROP_AWS_PROFILE / SMEGGDROP_AWS_REGION /
+SMEGGDROP_STATE_BUCKET / SMEGGDROP_STATE_PREFIX
+EOF
+    exit 1
+}
 
 cmd_list() {
     for cat in procs vars; do
@@ -44,12 +52,18 @@ cmd_restore() {
     local key="$PREFIX/$cat.json"
     local current
     current=$(aws_ s3api head-object --bucket "$BUCKET" --key "$key" --query VersionId --output text)
+
+    # version ids are opaque and routinely contain +, / and =, all of which
+    # change meaning inside a copy-source. Encode before interpolating.
+    local ver_enc
+    ver_enc=$(python3 -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$ver")
+
     echo "current version of $key is $current"
     echo "restoring $ver over it..."
     # copying an old version forward keeps the current one as history, so
     # this is undoable: re-run with the id printed above
     aws_ s3api copy-object --bucket "$BUCKET" --key "$key" \
-        --copy-source "$BUCKET/$key?versionId=$ver" \
+        --copy-source "$BUCKET/$key?versionId=$ver_enc" \
         --metadata-directive COPY --query 'CopyObjectResult.ETag' --output text
     echo "done. to undo: $0 restore $cat $current"
 }
@@ -57,15 +71,26 @@ cmd_restore() {
 cmd_verify() {
     local uri="s3://$BUCKET/$PREFIX"
     echo "loading $uri into a throwaway interpreter..."
+    # stderr is left alone: when this fails it is usually aws auth or a
+    # missing dependency, and swallowing that turns a clear error into a
+    # bare non-zero exit
+    local report
+    report=$(mktemp)
+    # shellcheck disable=SC2064
+    trap "rm -f '$report'" RETURN
+    # to a file rather than a pipe: exiting non-zero from the reader closes
+    # the pipe under the writer, and the BrokenPipeError that follows buries
+    # the actual result
     AWS_PROFILE="$PROFILE" AWS_REGION="$REGION" \
-        uv run --quiet --with boto3 smeggdrop --state "$uri" audit --json 2>/dev/null \
-        | uv run --quiet python -c '
+        uv run --quiet --with boto3 smeggdrop --state "$uri" audit --json > "$report"
+    python3 - "$report" <<'PY'
 import json, sys
-r = json.load(sys.stdin)
-tot = r.get("total") or len(r.get("procs", []))
-bad = r.get("load_errors") or 0
-print(f"procs loaded: {tot}   load errors: {bad}")
-sys.exit(1 if bad else 0)'
+s = json.load(open(sys.argv[1]))["summary"]
+bad = s["load_failures"] + s["var_load_failures"]
+print(f"procs: {s['total']}   load failures: {s['load_failures']}"
+      f"   var load failures: {s['var_load_failures']}")
+sys.exit(1 if bad else 0)
+PY
 }
 
 case "${1:-}" in
