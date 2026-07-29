@@ -141,7 +141,10 @@ export default $config({
           // exists, which is what took the deployed bot down.
           actions: ["lambda:InvokeFunction"],
           resources: [
-            $interpolate`arn:aws:lambda:${aws.getRegionOutput().name}:${aws.getCallerIdentityOutput().accountId}:function:${$app.name}-${$app.stage}-*`,
+            // "BotFunction" is this component's logical name, so the prefix
+            // stays put across the random suffix sst regenerates, without
+            // widening the grant to every function in the stack
+            $interpolate`arn:aws:lambda:${aws.getRegionOutput().name}:${aws.getCallerIdentityOutput().accountId}:function:${$app.name}-${$app.stage}-BotFunction-*`,
           ],
         },
       ],
