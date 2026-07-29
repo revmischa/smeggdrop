@@ -94,6 +94,14 @@ Writes are conditional on the ETag that was loaded, so if a second process
 does write, its changes are merged rather than clobbered. That's a backstop
 for cold-start overlap, not a licence to run more than one writer.
 
+Packing per category cuts cold-start GETs, but it also means every eval
+that changes anything rewrites a whole ~6 MB blob, so versions pile up per
+*eval*, not per changed proc. The deployed bucket keeps the 200 most recent
+noncurrent versions and expires them after 90 days — enough to walk back a
+bad eval without unbounded growth. Versioning only survives a bad write
+though, not the bucket going away, so AWS Backup takes a daily copy into a
+separate vault with 35-day retention.
+
 Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_CHANNELS` (comma-separated channel IDs, empty = all),
 `SMEGGDROP_BLOCKED_USERS` (comma-separated slack user IDs — not
