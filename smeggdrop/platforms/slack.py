@@ -222,6 +222,33 @@ def retry_attempt(headers) -> int:
         return 0
 
 
+def is_lazy_invocation(headers) -> bool:
+    """True when bolt is re-invoking us to run a lazy listener.
+
+    On lambda an event is handled by two invocations of the same function:
+    the first acks inside slack's 3s window, then bolt invokes the function
+    again to do the real work. Both carry the same slack event id, but the
+    second is bolt calling us rather than slack redelivering, so it must not
+    be deduped. It also frequently lands on the same warm container that
+    just claimed that id -- dedupe it and the eval never runs at all, which
+    looks like a bot that acks everything and answers nothing.
+
+    Bolt's lazy runner always sets the function name alongside the flag, so
+    require both: exempting a request from deduping is worth being narrow
+    about, and one stray header shouldn't be enough to do it.
+    """
+
+    def value(name):
+        raw = (headers or {}).get(name)
+        if isinstance(raw, (list, tuple)):
+            raw = raw[0] if raw else None
+        return raw
+
+    return bool(value("x-slack-bolt-lazy-only")) and bool(
+        value("x-slack-bolt-lazy-function-name")
+    )
+
+
 class NickCache:
     """user id -> display name via users.info, cached; falls back to the id."""
 
@@ -434,6 +461,11 @@ def build_app(engine: Engine, cfg: SlackConfig, *, lazy: bool = False, **app_kwa
         # everything; and a retry whose original we never handled (bot was
         # restarting) still deserves to run, so key off the event id rather
         # than the retry counter.
+        # The lazy re-invocation repeats the event id the ack already
+        # claimed; it is our own second half, not a redelivery.
+        if is_lazy_invocation(request.headers):
+            next()
+            return
         event_id = event_id_of(request.body)
         if not deduper.claim(event_id):
             log.info(
