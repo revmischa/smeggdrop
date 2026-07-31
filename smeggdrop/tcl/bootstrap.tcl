@@ -77,3 +77,32 @@ proc apply {cmd args} {
 namespace eval commands {
     proc words {} { core::words }
 }
+
+# `puts` is ordinary Tcl, but a safe interp starts with no channels shared
+# in at all, so a bare [puts $x] fails with "can not find channel named
+# stdout" -- the first thing anyone reaches for by habit. There has never
+# been a real stdout here to write to: this bot's output is the eval's
+# return value (or core::bot_say), not anything printed along the way, so
+# nothing in the accumulated state actually calls puts. Alias it to
+# core::print rather than leaving newcomers to hit a channel error that
+# has nothing to do with what they were trying to do -- same as core::print
+# always did, output goes to the operator's log, not the channel.
+proc puts {args} {
+    if {[llength $args] && [lindex $args 0] eq "-nonewline"} {
+        set args [lrange $args 1 end]
+    }
+    switch [llength $args] {
+        1 { core::print [lindex $args 0] }
+        2 {
+            set chan [lindex $args 0]
+            if {$chan ni {stdout stderr}} {
+                error "can not find channel named \"$chan\""
+            }
+            core::print [lindex $args 1]
+        }
+        default {
+            error {wrong # args: should be "puts ?-nonewline? ?channelId? string"}
+        }
+    }
+    return
+}
