@@ -325,6 +325,68 @@ def test_event_deduper_is_bounded():
     assert d.claim("Ev0") is True  # oldest evicted
 
 
+class FakeDynamo:
+    """Minimal conditional-put dynamo: first writer for a key wins."""
+
+    class ConditionalCheckFailedException(Exception):
+        pass
+
+    def __init__(self, fail_with=None):
+        self.items: dict[str, dict] = {}
+        self.fail_with = fail_with
+
+    def put_item(self, *, TableName, Item, ConditionExpression=None):
+        if self.fail_with:
+            raise self.fail_with
+        key = Item["event_id"]["S"]
+        if ConditionExpression and key in self.items:
+            raise FakeDynamo.ConditionalCheckFailedException()
+        self.items[key] = Item
+
+
+def test_dynamo_deduper_claims_once_across_instances():
+    from smeggdrop.platforms.slack import DynamoDeduper
+
+    # two instances standing in for two lambda containers: the whole point is
+    # that the second one knows the first already took the event
+    shared = FakeDynamo()
+    a = DynamoDeduper("t", client=shared)
+    b = DynamoDeduper("t", client=shared)
+    assert a.claim("Ev1") is True
+    assert b.claim("Ev1") is False
+    assert b.claim("Ev2") is True
+    assert a.claim(None) is True  # nothing to dedupe on: run it
+
+
+def test_dynamo_deduper_sets_a_ttl():
+    from smeggdrop.platforms.slack import DynamoDeduper
+
+    shared = FakeDynamo()
+    DynamoDeduper("t", ttl_seconds=900, client=shared).claim("Ev1")
+    assert int(shared.items["Ev1"]["expires_at"]["N"]) > 0
+
+
+def test_dynamo_deduper_runs_the_event_when_dynamo_is_down():
+    from smeggdrop.platforms.slack import DynamoDeduper
+
+    # answering twice is worse than answering once, but not answering at all
+    # is worse still — a dedupe outage must not silence the bot
+    d = DynamoDeduper("t", client=FakeDynamo(fail_with=RuntimeError("boom")))
+    assert d.claim("Ev1") is True
+
+
+def test_make_deduper_picks_by_config():
+    from smeggdrop.platforms.slack import (
+        DynamoDeduper,
+        EventDeduper,
+        SlackConfig,
+        make_deduper,
+    )
+
+    assert isinstance(make_deduper(SlackConfig()), EventDeduper)
+    assert isinstance(make_deduper(SlackConfig(dedupe_table="t")), DynamoDeduper)
+
+
 def test_capitalized_trigger_works_end_to_end(engine, cfg):
     client = StubClient()
     assert handle_message_event(engine, client, event("Tcl expr {6 * 7}"), cfg)

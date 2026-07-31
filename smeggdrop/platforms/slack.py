@@ -43,6 +43,9 @@ class SlackConfig:
     time_limit: int = 5
     words_file: str | None = None
     app_token: str | None = None  # xapp-, socket mode only
+    # dynamo table for cross-container dedupe; empty = in-memory, which
+    # is only correct when there is a single process (socket mode)
+    dedupe_table: str | None = None
 
     @classmethod
     def from_env(cls, env=os.environ) -> "SlackConfig":
@@ -63,6 +66,7 @@ class SlackConfig:
             time_limit=int(env.get("SMEGGDROP_TIME_LIMIT", "5")),
             words_file=env.get("SMEGGDROP_WORDS") or None,
             app_token=env.get("SLACK_APP_TOKEN") or None,
+            dedupe_table=env.get("SMEGGDROP_DEDUPE_TABLE") or None,
         )
 
 
@@ -196,6 +200,61 @@ class EventDeduper:
         while len(self._seen) > self.capacity:
             self._seen.popitem(last=False)
         return True
+
+
+class DynamoDeduper:
+    """Claims slack event ids in dynamo, so the claim is shared.
+
+    EventDeduper keeps its record in memory, which means per process — and
+    on lambda that means per container. Slack retries when it doesn't get an
+    ack inside 3s, which a cold start is right on the edge of, and the retry
+    is free to land on a *different* container that has never heard of the
+    event. It runs the eval again and the channel gets two answers. Only a
+    claim both containers can see fixes that.
+
+    The claim is a conditional write: first writer wins, everyone else is a
+    duplicate. Items carry a TTL because the claim only has to outlive
+    slack's retry window, not be kept forever.
+    """
+
+    def __init__(self, table: str, ttl_seconds: int = 900, client=None):
+        self.table = table
+        self.ttl_seconds = ttl_seconds
+        self._client = client
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3  # imported lazily so the core stays dependency-free
+
+            self._client = boto3.client("dynamodb")
+        return self._client
+
+    def claim(self, event_id: str | None) -> bool:
+        if not event_id:
+            return True  # nothing to dedupe on; better to run than to drop
+        try:
+            self.client.put_item(
+                TableName=self.table,
+                Item={
+                    "event_id": {"S": event_id},
+                    "expires_at": {"N": str(int(time.time()) + self.ttl_seconds)},
+                },
+                ConditionExpression="attribute_not_exists(event_id)",
+            )
+            return True
+        except Exception as e:
+            if type(e).__name__ == "ConditionalCheckFailedException":
+                return False
+            # A dynamo outage must not take the bot down with it. Answering
+            # twice is a worse failure than not answering at all, so fall
+            # back to running the event rather than dropping it.
+            log.warning("dedupe claim failed for %s, running anyway: %s", event_id, e)
+            return True
+
+
+def make_deduper(cfg: "SlackConfig"):
+    return DynamoDeduper(cfg.dedupe_table) if cfg.dedupe_table else EventDeduper()
 
 
 def event_id_of(body) -> str | None:
@@ -452,7 +511,7 @@ def build_app(engine: Engine, cfg: SlackConfig, *, lazy: bool = False, **app_kwa
     nicks = NickCache()
     channels = ChannelCache()
     chat_log = ChatLog()
-    deduper = EventDeduper()
+    deduper = make_deduper(cfg)
 
     @app.middleware
     def drop_duplicates(request, next):

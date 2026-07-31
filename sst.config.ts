@@ -105,6 +105,17 @@ export default $config({
       resources: [state.arn],
     });
 
+    // Slack retries an event it didn't see acked within 3s, which a cold
+    // start sits right on the edge of, and the retry can land on a different
+    // container. An in-memory dedupe is per container, so both of them run
+    // the eval and the channel gets answered twice -- the claim has to be
+    // somewhere both can see it.
+    const dedupe = new sst.aws.Dynamo("Dedupe", {
+      fields: { event_id: "string" },
+      primaryIndex: { hashKey: "event_id" },
+      ttl: "expires_at",
+    });
+
     const botToken = new sst.Secret("SlackBotToken");
     const signingSecret = new sst.Secret("SlackSigningSecret");
     const channels = new sst.Secret("SlackChannels", "");
@@ -124,11 +135,16 @@ export default $config({
         SMEGGDROP_CHANNELS: channels.value,
         SMEGGDROP_STATE: $interpolate`s3://${state.name}/state`,
         SMEGGDROP_TIME_LIMIT: "5",
+        SMEGGDROP_DEDUPE_TABLE: dedupe.name,
       },
       permissions: [
         {
           actions: ["s3:GetObject", "s3:PutObject", "s3:ListBucket"],
           resources: [state.arn, $interpolate`${state.arn}/*`],
+        },
+        {
+          actions: ["dynamodb:PutItem"],
+          resources: [dedupe.arn],
         },
         {
           // bolt's lazy listeners ack inside slack's 3s window and then

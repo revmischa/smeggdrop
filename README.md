@@ -131,7 +131,8 @@ Config env vars: `SMEGGDROP_TRIGGER` (default `^\s*tcl\s`),
 `SMEGGDROP_BLOCKED_USERS` (comma-separated slack user IDs — not
 names, which anyone can change — silently ignored, no reply),
 `SMEGGDROP_STATE`, `SMEGGDROP_TIME_LIMIT`, `SMEGGDROP_WORDS`,
-`SMEGGDROP_MEMORY_MB` (default 2048, 0 disables).
+`SMEGGDROP_MEMORY_MB` (default 2048, 0 disables),
+`SMEGGDROP_DEDUPE_TABLE` (dynamo table for cross-container dedupe).
 
 Request signatures are verified by bolt. Each slack event id runs at most
 once, but a retry whose first delivery was never acked — the bot was
@@ -139,6 +140,16 @@ restarting — still runs, instead of being dropped for merely looking like a
 retry. On lambda one event arrives as two invocations carrying the same
 event id (ack, then eval), so bolt's own re-invocation is exempt from that
 check; deduping it would drop every eval.
+
+Where that claim is kept matters. In one process an in-memory record is
+enough, but on lambda "one process" means "one container": Slack retries an
+event it hasn't seen acked within 3s — which a cold start is right on the
+edge of — and the retry is free to land on a container that has never heard
+of it. Both run the eval and the channel gets answered twice, which is how
+it showed up in practice. Set `SMEGGDROP_DEDUPE_TABLE` to a dynamo table and
+the claim becomes a conditional write every container can see; leave it
+unset for socket mode, where in-memory is correct. If dynamo is unreachable
+the event runs rather than being dropped — a duplicate answer beats silence.
 
 `audit` exists so the port can be verified against real accumulated state:
 it loads everything into a throwaway sandbox (nothing persisted, network
