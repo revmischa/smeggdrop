@@ -274,6 +274,49 @@ def test_builtin_apply_stays_reachable(engine):
     assert run(engine, "tcl_apply {{x} {return $x}} ok").output == "ok"
 
 
+def test_puts_no_longer_hits_missing_channel(engine):
+    # a safe interp shares in no channels, so a bare [puts] used to fail
+    # with "can not find channel named stdout" -- the first thing anyone
+    # reaches for by ordinary tcl habit, unrelated to what they meant to do
+    for code in ("puts hi", "puts stdout hi", "puts stderr hi", "puts -nonewline hi"):
+        result = run(engine, code)
+        assert result.ok, f"{code!r} -> {result.output}"
+
+
+def test_puts_output_goes_to_the_operator_log_not_the_channel(engine, caplog):
+    # matches core::print, which this is an alias for: this bot's visible
+    # output has only ever been the eval's return value or core::bot_say,
+    # so puts becoming non-fatal must not quietly start posting into slack
+    with caplog.at_level("INFO"):
+        result = run(engine, 'puts "hello there"')
+    assert result.ok
+    assert result.output == ""
+    assert any("hello there" in r.message for r in caplog.records)
+
+
+def test_puts_bogus_channel_still_errors(engine):
+    result = run(engine, "puts notachannel hi")
+    assert not result.ok
+    assert "notachannel" in result.output
+
+
+def test_puts_wrong_arg_count_still_errors(engine):
+    result = run(engine, "puts a b c")
+    assert not result.ok
+
+
+def test_puts_works_inside_a_loop(engine):
+    # the actual case that surfaced this: a proc looping over a list and
+    # puts-ing each element like an ordinary tcl script would
+    run(engine, "set ::items {a b c}")
+    result = run(
+        engine,
+        "for {set i 0} {$i < [llength $::items]} {incr i} "
+        '{puts "$i: [lindex $::items $i]"}',
+    )
+    assert result.ok
+
+
 def test_reload_picks_up_externally_written_state(store, engine):
     # simulate a one-off `smeggdrop repl` fix landing on disk while the
     # engine is already running, the exact scenario hot reload is for
