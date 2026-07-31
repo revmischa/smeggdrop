@@ -63,6 +63,24 @@ def test_non_trigger_ignored(engine, cfg):
     assert client.posted == []
 
 
+def test_mention_is_logged_but_not_evaluated_or_replied(engine, cfg, caplog):
+    # the bot has no slack identity to be @-mentioned, so this is the only
+    # signal an operator watching the logs gets that someone's asking for
+    # them by name
+    client = StubClient()
+    with caplog.at_level("INFO"):
+        assert not handle_message_event(engine, client, event("is claude around?"), cfg)
+    assert client.posted == []  # never replies on the channel's behalf
+    assert any("mention: " in r.message and "claude" in r.message.lower() for r in caplog.records)
+
+
+def test_mention_matches_whole_word_only(engine, cfg, caplog):
+    client = StubClient()
+    with caplog.at_level("INFO"):
+        assert not handle_message_event(engine, client, event("claudette said hi"), cfg)
+    assert not any(r.message.startswith("mention: ") for r in caplog.records)
+
+
 def test_bot_messages_never_evaluated(engine, cfg):
     client = StubClient()
     assert not handle_message_event(
