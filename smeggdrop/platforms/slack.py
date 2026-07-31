@@ -71,6 +71,10 @@ CHANNEL_MENTION = re.compile(r"<#[C][A-Z0-9]+(?:\|([^>]*))?>")
 BROADCAST_MENTION = re.compile(r"<!(here|channel|everyone)(?:\|[^>]*)?>")
 SPECIAL_MENTION = re.compile(r"<!([a-z_]+)(?:\^[^|>]*)?(?:\|([^>]*))?>")
 
+# The bot has no slack identity of its own to be @-mentioned, so this is
+# the only way "is claude around" is distinguishable from ordinary chat.
+OPERATOR_MENTION = re.compile(r"\bclaude\b", re.IGNORECASE)
+
 
 def unfuck_slack_message(text: str) -> str:
     """Undo slack's message mangling before trigger matching: unescape html
@@ -338,6 +342,13 @@ def handle_message_event(
     if code is None or not code.strip():
         if chat_log is not None and cleaned:
             chat_log.append(channel, nick, user_id or None, cleaned)
+        if cleaned and OPERATOR_MENTION.search(cleaned):
+            # plain chat never otherwise produces a log line, so someone
+            # addressing the operator by name is invisible unless it's
+            # logged on purpose. This doesn't page or reply -- a human is
+            # expected to be watching the logs.
+            channel_name = (channels or ChannelCache()).resolve(client, channel)
+            log.info("mention: %s in %s: %r", nick, channel_name, cleaned[:200])
         return False
 
     channel_name = (channels or ChannelCache()).resolve(client, channel)
